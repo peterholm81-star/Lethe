@@ -6,12 +6,13 @@ import {
   insertConfession,
   fetchPopularPlaces,
   resolvePlace,
+  fetchSessionGeo,
   type PageCursor,
   type CachedPlace,
   type InsertConfessionResult,
 } from './api'
 import { getCachedPlace, setCachedPlace, getRandomFromList, type ResolvedPlace } from './placeCache'
-import { logEvent } from './analytics'
+import { logEvent, getGeoDimensions } from './analytics'
 import {
   initSessionIfNeeded,
   onAppBackground,
@@ -185,9 +186,12 @@ function App() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
   }, [])
 
-  // Log session_start event on mount
+  // Log session_start event on mount and fetch geo dimensions
   useEffect(() => {
-    logEvent('session_start')
+    // Fetch geo first (sets analytics dimensions), then log session_start
+    fetchSessionGeo().then(() => {
+      logEvent('session_start')
+    })
   }, [])
 
   // Log feed_view event and debug location state when tab changes
@@ -205,7 +209,7 @@ function App() {
       adMarkedRef.current = true
       setAdInsertIndex(feedLength) // Insert at the end of current feed
       setAdInserted(true)
-      markAdShown()
+      markAdShown(tab) // Pass current feed mode for analytics
       if (import.meta.env.DEV) {
         console.log('[ads] Ad inserted at index', feedLength)
       }
@@ -274,18 +278,61 @@ function App() {
     setReportSubmitting(true)
     setReportError(null)
 
-    try {
-      const { error } = await supabase.rpc('report_confession', {
+    // Get geo context for the report (city_code from session geo)
+    const geo = getGeoDimensions()
+    // Get device location if available (for future validation)
+    const lat = deviceLocation?.lat ?? null
+    const lng = deviceLocation?.lng ?? null
+
+    // DEBUG: Log what we're sending
+    if (DEV) {
+      console.log('[REPORT DEBUG] Using create_confession_report_v1')
+      console.log('[REPORT DEBUG] geo from getGeoDimensions():', geo)
+      console.log('[REPORT DEBUG] payload:', {
         p_confession_id: reportConfessionId,
-        p_reason: reportReason,
+        p_reason: reportReason.toUpperCase(),
+        p_city_code: geo.city_code ?? null,
+        p_lat: lat,
+        p_lng: lng,
+      })
+    }
+
+    try {
+      // Use new RPC with city_code support
+      const { error } = await supabase.rpc('create_confession_report_v1', {
+        p_confession_id: reportConfessionId,
+        p_reason: reportReason.toUpperCase(), // Normalize to uppercase
         p_details: reportDetails.trim() || null,
+        p_city_code: geo.city_code ?? null,
+        p_lat: lat,
+        p_lng: lng,
       })
 
       if (error) {
-        if (DEV) console.error('[report] RPC error:', error)
-        setReportError('Something went wrong. Please try again.')
-        setReportSubmitting(false)
-        return
+        if (DEV) console.error('[REPORT DEBUG] RPC error:', error)
+        // Fallback to old RPC if new one doesn't exist yet
+        if (error.code === 'PGRST202' || error.message?.includes('function') || error.message?.includes('not found')) {
+          if (DEV) console.log('[REPORT DEBUG] FALLING BACK to report_confession (no city_code!)')
+          const { error: fallbackError } = await supabase.rpc('report_confession', {
+            p_confession_id: reportConfessionId,
+            p_reason: reportReason,
+            p_details: reportDetails.trim() || null,
+          })
+          if (fallbackError) {
+            if (DEV) console.error('[REPORT DEBUG] Fallback RPC error:', fallbackError)
+            setReportError('Something went wrong. Please try again.')
+            setReportSubmitting(false)
+            return
+          }
+          if (DEV) console.log('[REPORT DEBUG] Fallback succeeded (city_code was NOT saved)')
+        } else {
+          setReportError('Something went wrong. Please try again.')
+          setReportSubmitting(false)
+          return
+        }
+      } else {
+        // No error = new RPC worked
+        if (DEV) console.log('[REPORT DEBUG] create_confession_report_v1 succeeded (city_code should be saved)')
       }
 
       // Success
@@ -293,7 +340,7 @@ function App() {
       closeReportModal()
       showToast('Thanks. This helps keep the space safe.')
     } catch (err) {
-      if (DEV) console.error('[report] exception:', err)
+      if (DEV) console.error('[REPORT DEBUG] exception:', err)
       setReportError('Something went wrong. Please try again.')
       setReportSubmitting(false)
     }
@@ -717,11 +764,19 @@ function App() {
     setError('')
     setNotice('')
 
+    // Get session geo for the confession
+    const sessionGeo = getGeoDimensions()
+
     const result: InsertConfessionResult = await insertConfession({
       text: trimmed,
       placeLabel,
       lat: postLat,
       lng: postLng,
+      // Include geo from session
+      region: sessionGeo.region,
+      city_code: sessionGeo.city_code,
+      country_code: sessionGeo.country_code,
+      // country name not available in session geo, leave undefined
     })
 
     if (!result.ok) {

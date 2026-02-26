@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import type { Confession } from './supabase'
+import { setGeoDimensions } from './analytics'
 
 // Dev-only logging
 const DEV = import.meta.env.DEV
@@ -143,6 +144,11 @@ export type InsertConfessionParams = {
   placeLabel?: string
   lat?: number
   lng?: number
+  // Geo fields (from session geo)
+  region?: string
+  city_code?: string
+  country?: string
+  country_code?: string
 }
 
 export type InsertConfessionResult = 
@@ -154,7 +160,7 @@ export type InsertConfessionResult =
  * Server sets expires_at and is_hidden, enforces rate limiting
  */
 export async function insertConfession(params: InsertConfessionParams): Promise<InsertConfessionResult> {
-  const { text, placeLabel, lat, lng } = params
+  const { text, placeLabel, lat, lng, region, city_code, country, country_code } = params
   
   if (!supabase) {
     return { ok: false, error: 'ERROR', message: 'Not configured' }
@@ -166,6 +172,11 @@ export async function insertConfession(params: InsertConfessionParams): Promise<
     p_place_label: placeLabel ?? null,
     p_lat: lat ?? null,
     p_lng: lng ?? null,
+    // Geo fields
+    p_region: region ?? null,
+    p_city_code: city_code ?? null,
+    p_country: country ?? null,
+    p_country_code: country_code ?? null,
   }
 
   try {
@@ -351,5 +362,81 @@ export async function resolvePlace(query: string): Promise<ResolvePlaceResult> {
     }
     if (DEV) console.error('[resolvePlace] exception:', err)
     return { ok: false, reason: 'ERROR', message: 'Network error' }
+  }
+}
+
+// =============================================================================
+// SESSION GEO
+// =============================================================================
+// Fetches coarse geo dimensions from edge function (country, region, city).
+// Called once per session on app start. Sets geo in analytics module.
+// Privacy-first: No IP stored, only coarse location codes.
+//
+// NOTE: Edge function must be deployed with --no-verify-jwt flag:
+//   supabase functions deploy get_session_geo --no-verify-jwt
+// =============================================================================
+
+let geoFetched = false
+
+/**
+ * Fetch session geo from edge function and set in analytics module.
+ * Only fetches once per session (subsequent calls are no-ops).
+ * Fails silently - geo is optional enhancement for analytics.
+ */
+export async function fetchSessionGeo(): Promise<void> {
+  // Only fetch once per session
+  if (geoFetched) return
+  geoFetched = true
+
+  if (!supabase) {
+    if (DEV) console.warn('[fetchSessionGeo] supabase not configured')
+    return
+  }
+
+  let geoSet = false
+
+  try {
+    // Call edge function - Supabase client automatically includes apikey header
+    // Edge function is deployed with --no-verify-jwt for public access
+    const { data, error } = await supabase.functions.invoke('get_session_geo', {
+      method: 'GET',
+    })
+
+    if (error) {
+      // Log full error for debugging 401 issues
+      if (DEV) {
+        console.warn('[fetchSessionGeo] invoke error:', error.message)
+        console.warn('[fetchSessionGeo] full error:', JSON.stringify(error, null, 2))
+      }
+      // Don't return - fall through to DEV fallback
+    } else if (data?.ok) {
+      // Check if we got real geo data
+      const hasGeo = data.country_code || data.region || data.city_code
+
+      if (hasGeo) {
+        // Production or real geo available - use actual values
+        setGeoDimensions({
+          country_code: data.country_code || undefined,
+          region: data.region || undefined,
+          city_code: data.city_code || undefined,
+        })
+        geoSet = true
+        if (DEV) console.log('[fetchSessionGeo] geo set from API:', data.country_code, data.region, data.city_code)
+      } else {
+        if (DEV) console.log('[fetchSessionGeo] API returned ok but no geo data:', data)
+      }
+    } else {
+      if (DEV) console.log('[fetchSessionGeo] response not ok:', data)
+    }
+  } catch (err) {
+    if (DEV) console.error('[fetchSessionGeo] exception:', err)
+    // Fall through to DEV fallback
+  }
+
+  // DEV fallback: Always provide geo in dev mode if not set
+  if (!geoSet && DEV) {
+    const devGeo = { country_code: 'NO', region: 'Europe', city_code: 'TRD' }
+    setGeoDimensions(devGeo)
+    console.log('[fetchSessionGeo] DEV fallback applied: NO/Europe/TRD')
   }
 }

@@ -1,0 +1,115 @@
+:root {
+  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  /* Force dark color scheme for native form controls */
+  color-scheme: dark;
+  color: rgba(255, 255, 255, 0.87);
+  background-color: #1a1a1a;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+a {
+  font-weight: 500;
+  color: #646cff;
+  text-decoration: inherit;
+}
+a:hover {
+  color: #535bf2;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  min-width: 320px;
+  height: 100vh;
+  overflow: hidden; /* Let children handle scroll */
+}
+
+h1 {
+  font-size: 3.2em;
+  line-height: 1.1;
+}
+
+button {
+  border-radius: 8px;
+  border: 1px solid transparent;
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  background-color: #1a1a1a;
+  cursor: pointer;
+  transition: border-color 0.25s;
+}
+button:hover {
+  border-color: #646cff;
+}
+button:focus,
+button:focus-visible {
+  outline: 4px auto -webkit-focus-ring-color;
+}
+
+/* ============================================
+   Dark mode styling for native form controls
+   Fix for white/unreadable dropdowns
+   ============================================ */
+select {
+  color-scheme: dark;
+  background-color: rgba(30, 30, 30, 0.95);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+select option {
+  background-color: #1e1e1e;
+  color: rgba(255, 255, 255, 0.85);
+  padding: 8px;
+}
+
+select option:hover,
+select option:focus,
+select option:checked {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Input styling for consistency */
+input, textarea {
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    color: #213547;
+    background-color: #ffffff;
+  }
+  a:hover {
+    color: #747bff;
+  }
+  button {
+    background-color: #f9f9f9;
+  }
+  select {
+    color-scheme: light;
+    background-color: #ffffff;
+    color: #213547;
+  }
+  select option {
+    background-color: #ffffff;
+    color: #213547;
+  }
+  input, textarea {
+    color-scheme: light;
+  }
+}

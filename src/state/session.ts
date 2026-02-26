@@ -157,11 +157,19 @@ export function onAppForeground(): void {
  * Record a "next page" fetch (pagination beyond initial load)
  * Increments counter and arms ad when threshold reached.
  * Does nothing if ad already shown this session.
+ * Also logs page_fetch event for analytics.
  */
 export function recordPageFetch(): void {
-  // Don't count if ad already shown this session
+  // Always log the event for analytics (even if ad already shown)
+  import('../analytics').then(({ logEvent }) => {
+    logEvent('page_fetch')
+  }).catch(() => {
+    // Fail silently - analytics must never block UX
+  })
+
+  // Don't count for ad triggering if ad already shown this session
   if (state.adShown) {
-    log('Page fetch ignored (ad already shown this session)')
+    log('Page fetch ignored for ad (ad already shown this session)')
     return
   }
   
@@ -178,11 +186,19 @@ export function recordPageFetch(): void {
 /**
  * Mark ad as shown (called after ad displays)
  * Prevents further ads this session.
+ * Also logs ad_shown event for analytics.
  */
-export function markAdShown(): void {
+export function markAdShown(mode?: string): void {
   state.adShown = true
   state.adArmed = false
   log('Ad marked as shown, no more ads this session')
+  
+  // Log ad_shown event for analytics
+  import('../analytics').then(({ logEvent }) => {
+    logEvent('ad_shown', { mode })
+  }).catch(() => {
+    // Fail silently - analytics must never block UX
+  })
 }
 
 /**

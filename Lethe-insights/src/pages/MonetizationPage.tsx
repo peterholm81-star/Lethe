@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
-import { useInsightsFilters } from '../contexts/InsightsContext';
 import { useEngagementFlow } from '../hooks/useEngagementFlow';
+import { useFiltersCore, FilterBarCore, toLegacyFilters } from '../engine/filters_core';
 
 // =============================================================================
 // STYLES
@@ -224,7 +224,15 @@ function formatNumber(value: number, decimals = 0): string {
 // =============================================================================
 
 export function MonetizationPage() {
-  const { filters, window, lensLabel, windowLabel } = useInsightsFilters();
+  // New filter system with URL sync
+  const { filters: coreFilters } = useFiltersCore();
+  
+  // Convert to legacy format for existing hooks
+  const { filters, window, lensLabel, windowLabel } = useMemo(
+    () => toLegacyFilters(coreFilters),
+    [coreFilters]
+  );
+  
   const { data: engagementData, loading } = useEngagementFlow(filters, window);
 
   // Assumptions (inputs)
@@ -340,6 +348,13 @@ export function MonetizationPage() {
           All numbers are estimates based on current filter ({lensLabel} · {windowLabel}).
         </p>
       </div>
+
+      {/* Filter Bar */}
+      <FilterBarCore
+        enableCountry={false}
+        enableCity={false}
+        showReset={true}
+      />
 
       {/* Grid layout */}
       <div style={styles.grid}>

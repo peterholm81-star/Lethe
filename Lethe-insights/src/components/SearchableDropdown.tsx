@@ -1,5 +1,31 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 
+// =============================================================================
+// NORMALIZATION HELPERS - Support both string and {value, label} formats
+// =============================================================================
+
+type OptionInput = string | { value: string; label?: string };
+
+function normalizeValue(opt: OptionInput): string {
+  if (typeof opt === 'string') return opt;
+  if (opt && typeof opt === 'object' && 'value' in opt) {
+    return String(opt.value ?? '');
+  }
+  return '';
+}
+
+function normalizeLabel(opt: OptionInput): string {
+  if (typeof opt === 'string') return opt;
+  if (opt && typeof opt === 'object') {
+    return String(opt.label ?? opt.value ?? '');
+  }
+  return '';
+}
+
+// =============================================================================
+// STYLES
+// =============================================================================
+
 const styles = {
   container: {
     position: 'relative' as const,
@@ -119,10 +145,11 @@ const styles = {
 interface SearchableDropdownProps {
   value: string;
   onChange: (value: string) => void;
-  options: string[];
+  /** Options can be strings OR {value, label} objects */
+  options: OptionInput[];
   loading?: boolean;
   placeholder?: string;
-  width?: string;
+  width?: number | string;
   disabled?: boolean;
   disabledPlaceholder?: string;
   /** Unique id for the input element (required for accessibility - label association) */
@@ -149,10 +176,16 @@ export function SearchableDropdown({
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Filter options based on search term
-  const filteredOptions = options.filter((opt) =>
-    opt.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Normalize the incoming value prop (could be string or object)
+  const normalizedValue = typeof value === 'string' ? value : normalizeValue(value as OptionInput);
+
+  // Filter options based on search term (search both value and label)
+  const filteredOptions = options.filter((opt) => {
+    const label = normalizeLabel(opt).toLowerCase();
+    const val = normalizeValue(opt).toLowerCase();
+    const search = searchTerm.toLowerCase();
+    return label.includes(search) || val.includes(search);
+  });
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -193,7 +226,7 @@ export function SearchableDropdown({
         case 'Enter':
           e.preventDefault();
           if (highlightedIndex >= 0 && highlightedIndex < filteredOptions.length) {
-            onChange(filteredOptions[highlightedIndex]);
+            onChange(normalizeValue(filteredOptions[highlightedIndex]));
             setIsOpen(false);
             setSearchTerm('');
             setHighlightedIndex(-1);
@@ -217,8 +250,8 @@ export function SearchableDropdown({
     }
   };
 
-  const handleOptionClick = (option: string) => {
-    onChange(option);
+  const handleOptionClick = (option: OptionInput) => {
+    onChange(normalizeValue(option));
     setIsOpen(false);
     setSearchTerm('');
     setHighlightedIndex(-1);
@@ -237,7 +270,10 @@ export function SearchableDropdown({
     }
   };
 
-  const displayValue = isOpen ? searchTerm : value;
+  // Find the option that matches current value to display its label
+  const selectedOption = options.find((opt) => normalizeValue(opt) === normalizedValue);
+  const displayLabel = selectedOption ? normalizeLabel(selectedOption) : normalizedValue;
+  const displayValue = isOpen ? searchTerm : displayLabel;
   const effectivePlaceholder = disabled && disabledPlaceholder ? disabledPlaceholder : placeholder;
 
   return (
@@ -270,7 +306,7 @@ export function SearchableDropdown({
             ...(disabled ? styles.inputDisabled : {}),
           }}
         />
-        {value && !isOpen && (
+        {normalizedValue && !isOpen && (
           <button
             type="button"
             onClick={handleClear}
@@ -293,16 +329,16 @@ export function SearchableDropdown({
           ) : (
             filteredOptions.map((option, index) => (
               <div
-                key={option}
+                key={normalizeValue(option)}
                 onClick={() => handleOptionClick(option)}
                 onMouseEnter={() => setHighlightedIndex(index)}
                 style={{
                   ...styles.option,
                   ...(index === highlightedIndex ? styles.optionHighlighted : {}),
-                  ...(option === value ? styles.optionSelected : {}),
+                  ...(normalizeValue(option) === normalizedValue ? styles.optionSelected : {}),
                 }}
               >
-                {option}
+                {normalizeLabel(option)}
               </div>
             ))
           )}

@@ -18,6 +18,10 @@ export interface FilterBarCoreProps {
   enableCountry?: boolean;
   enableCity?: boolean;
   showReset?: boolean;
+  showCompare?: boolean;
+  sticky?: boolean;
+  /** Visual indicator when compare mode is active */
+  compareActive?: boolean;
 }
 
 // =============================================================================
@@ -34,6 +38,40 @@ const styles = {
     background: 'rgba(255, 255, 255, 0.03)',
     borderRadius: '10px',
     marginBottom: '24px',
+  } as React.CSSProperties,
+
+  barSticky: {
+    display: 'flex',
+    flexWrap: 'wrap' as const,
+    alignItems: 'center',
+    gap: '12px',
+    padding: '12px 16px',
+    background: 'rgba(12, 12, 18, 0.92)',
+    backdropFilter: 'blur(12px)',
+    borderRadius: '10px',
+    marginBottom: '16px',
+    position: 'sticky' as const,
+    top: 0,
+    zIndex: 50,
+    borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+    boxShadow: '0 4px 16px rgba(0, 0, 0, 0.3)',
+  } as React.CSSProperties,
+
+  barStickyCompareActive: {
+    display: 'flex',
+    flexWrap: 'wrap' as const,
+    alignItems: 'center',
+    gap: '12px',
+    padding: '12px 16px',
+    background: 'rgba(12, 12, 18, 0.92)',
+    backdropFilter: 'blur(12px)',
+    borderRadius: '10px',
+    marginBottom: '16px',
+    position: 'sticky' as const,
+    top: 0,
+    zIndex: 50,
+    borderBottom: '1px solid rgba(80, 200, 150, 0.25)',
+    boxShadow: '0 4px 16px rgba(0, 0, 0, 0.3), 0 1px 0 rgba(80, 200, 150, 0.1) inset',
   } as React.CSSProperties,
 
   group: {
@@ -61,6 +99,17 @@ const styles = {
     cursor: 'pointer',
   } as React.CSSProperties,
 
+  selectDisabled: {
+    padding: '6px 10px',
+    fontSize: '12px',
+    background: 'rgba(255, 255, 255, 0.02)',
+    border: '1px solid rgba(255, 255, 255, 0.05)',
+    borderRadius: '6px',
+    color: 'rgba(255, 255, 255, 0.3)',
+    outline: 'none',
+    cursor: 'not-allowed',
+  } as React.CSSProperties,
+
   spacer: {
     flex: 1,
     minWidth: '8px',
@@ -76,6 +125,58 @@ const styles = {
     borderRadius: '6px',
     cursor: 'pointer',
     transition: 'background 0.15s ease',
+  } as React.CSSProperties,
+
+  compareToggle: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '4px 10px',
+    background: 'rgba(255, 255, 255, 0.04)',
+    border: '1px solid rgba(255, 255, 255, 0.08)',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    transition: 'all 0.15s ease',
+  } as React.CSSProperties,
+
+  compareToggleActive: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '4px 10px',
+    background: 'rgba(100, 180, 150, 0.15)',
+    border: '1px solid rgba(100, 180, 150, 0.3)',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    transition: 'all 0.15s ease',
+  } as React.CSSProperties,
+
+  compareCheckbox: {
+    width: '14px',
+    height: '14px',
+    accentColor: 'rgba(100, 180, 150, 1)',
+    cursor: 'pointer',
+  } as React.CSSProperties,
+
+  compareLabel: {
+    fontSize: '11px',
+    fontWeight: 500,
+    color: 'rgba(255, 255, 255, 0.7)',
+    userSelect: 'none' as const,
+  } as React.CSSProperties,
+
+  compareLabelActive: {
+    fontSize: '11px',
+    fontWeight: 500,
+    color: 'rgba(100, 200, 150, 0.9)',
+    userSelect: 'none' as const,
+  } as React.CSSProperties,
+
+  hint: {
+    fontSize: '9px',
+    color: 'rgba(255, 255, 255, 0.35)',
+    fontStyle: 'italic' as const,
+    marginLeft: '4px',
   } as React.CSSProperties,
 };
 
@@ -99,6 +200,9 @@ export function FilterBarCore({
   enableCountry = true,
   enableCity = true,
   showReset = true,
+  showCompare = false,
+  sticky = false,
+  compareActive = false,
 }: FilterBarCoreProps) {
   const {
     filters,
@@ -106,6 +210,7 @@ export function FilterBarCore({
     setRegion,
     setCountry,
     setCity,
+    setCompareToPrevious,
     resetFilters,
   } = useFiltersCore();
 
@@ -125,8 +230,16 @@ export function FilterBarCore({
     ...availableCities,
   ];
 
+  // Check if region dropdown should be disabled (no real options)
+  const regionDisabled = availableRegions.length === 0;
+
+  // Determine bar style based on sticky and compare state
+  const barStyle = sticky 
+    ? (compareActive ? styles.barStickyCompareActive : styles.barSticky) 
+    : styles.bar;
+
   return (
-    <div style={styles.bar}>
+    <div style={barStyle}>
       {/* Time Range */}
       <div style={styles.group}>
         <span style={styles.label}>Time</span>
@@ -146,13 +259,26 @@ export function FilterBarCore({
       {/* Region */}
       <div style={styles.group}>
         <span style={styles.label}>Region</span>
-        <SearchableDropdown
-          options={regionOptions}
-          value={filters.region ?? ''}
-          onChange={(v) => setRegion(v || null)}
-          placeholder="All Regions"
-          width={120}
-        />
+        {regionDisabled ? (
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <select
+              style={styles.selectDisabled}
+              disabled
+              value=""
+            >
+              <option value="">All Regions</option>
+            </select>
+            <span style={styles.hint}>Data pending</span>
+          </div>
+        ) : (
+          <SearchableDropdown
+            options={regionOptions}
+            value={filters.region ?? ''}
+            onChange={(v) => setRegion(v || null)}
+            placeholder="All Regions"
+            width={120}
+          />
+        )}
       </div>
 
       {/* Country (optional) */}
@@ -183,6 +309,21 @@ export function FilterBarCore({
             disabled={!filters.country}
           />
         </div>
+      )}
+
+      {/* Compare Toggle */}
+      {showCompare && (
+        <label style={filters.compareToPrevious ? styles.compareToggleActive : styles.compareToggle}>
+          <input
+            type="checkbox"
+            checked={filters.compareToPrevious}
+            onChange={(e) => setCompareToPrevious(e.target.checked)}
+            style={styles.compareCheckbox}
+          />
+          <span style={filters.compareToPrevious ? styles.compareLabelActive : styles.compareLabel}>
+            Compare
+          </span>
+        </label>
       )}
 
       {/* Spacer */}

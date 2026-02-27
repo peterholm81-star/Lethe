@@ -184,6 +184,8 @@ const styles = {
   } as React.CSSProperties,
 
   // Content without grid (for custom pages like Reports) - scrollable
+  // NOTE: Pages using this with sticky children (e.g. MonetizationPage) should use
+  // top values relative to THIS scroll container, not the full viewport.
   contentPlain: {
     flex: 1,
     minHeight: 0, // Required for flex child to allow overflow

@@ -3,7 +3,9 @@ import { useEngagementFlow } from '../hooks/useEngagementFlow';
 import { useTopEarningCountries, type CountryRevenueData } from '../hooks/useTopEarningCountries';
 import { useRevenueGeo } from '../hooks/useRevenueGeo';
 import { useMoodPulse } from '../hooks/useMoodPulse';
+import { useCountryOptimizationV1 } from '../hooks/useCountryOptimizationV1';
 import { RevenueMapPhase1 } from '../components/monetization/RevenueMapPhase1';
+import { CountryOptimizationPanel } from '../components/monetization/CountryOptimizationPanel';
 import { useFiltersCore, FilterBarCore, toLegacyFilters } from '../engine/filters_core';
 import { analyzeRevenueDrivers } from '../utils/revenueDrivers';
 import { buildRevenueInsightLanguage } from '../engine/insights/revenueInsightLanguage';
@@ -1162,6 +1164,13 @@ export function MonetizationPage() {
     null  // cityCode
   );
 
+  // Unified country monetization optimization (signals + policy in one view)
+  const {
+    data: optimizationData,
+    loading: optimizationLoading,
+    error: optimizationError,
+  } = useCountryOptimizationV1();
+
   // Debug logging for revenue geo data (temporary, guarded)
   const prevGeoDataRef = useRef<string>('');
   useEffect(() => {
@@ -1913,6 +1922,18 @@ export function MonetizationPage() {
               )}
             </div>
           )}
+
+          {/* SECTION: Unified Country Monetization Optimization */}
+          <SectionHeader 
+            title="COUNTRY OPTIMIZATION" 
+            subtitle="Signals, policy, and recommendations — unified per-country intelligence" 
+          />
+          
+          <CountryOptimizationPanel
+            data={optimizationData}
+            loading={optimizationLoading}
+            error={optimizationError}
+          />
         </div>
 
         {/* RIGHT: Sticky Map Column */}

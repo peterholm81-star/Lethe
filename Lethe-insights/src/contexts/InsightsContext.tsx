@@ -5,7 +5,7 @@ import { createContext, useContext, useState, useCallback, useMemo, type ReactNo
 // =============================================================================
 
 export type InsightsMode = 'world' | 'near' | 'somewhere' | null;
-export type InsightsDays = 1 | 7 | 30;
+export type InsightsDays = 1 | 7 | 30 | 90 | 180 | 365;
 
 export interface InsightsFilters {
   country_code: string | null;

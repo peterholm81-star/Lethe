@@ -6,6 +6,10 @@ import { useMoodPulse } from '../hooks/useMoodPulse';
 import { useCountryOptimizationV1 } from '../hooks/useCountryOptimizationV1';
 import { RevenueMapPhase1 } from '../components/monetization/RevenueMapPhase1';
 import { CountryOptimizationPanel } from '../components/monetization/CountryOptimizationPanel';
+import { GlobalSignalRow } from '../components/monetization/GlobalSignalRow';
+import { AdvancedIntelligenceSection, IntelSubSection } from '../components/monetization/AdvancedIntelligenceSection';
+import { InfoHint } from '../components/ui/InfoHint';
+import { monetizationInfo } from './monetizationInfo';
 import { useFiltersCore, FilterBarCore, toLegacyFilters } from '../engine/filters_core';
 import { analyzeRevenueDrivers } from '../utils/revenueDrivers';
 import { buildRevenueInsightLanguage } from '../engine/insights/revenueInsightLanguage';
@@ -67,6 +71,126 @@ const sectionHeaderStyles = {
     margin: '4px 0 0 0',
     fontSize: '11px',
     color: 'rgba(255, 255, 255, 0.4)',
+  } as React.CSSProperties,
+};
+
+// =============================================================================
+// EXECUTIVE HEADER - Compact KPI strip
+// =============================================================================
+
+const execHeaderStyles = {
+  container: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '20px',
+    padding: '14px 20px',
+    background: 'linear-gradient(135deg, rgba(20, 20, 30, 0.9) 0%, rgba(15, 15, 22, 0.95) 100%)',
+    border: '1px solid rgba(100, 200, 150, 0.12)',
+    borderRadius: '10px',
+    marginBottom: '16px',
+    boxShadow: '0 4px 24px rgba(0, 0, 0, 0.25)',
+    flexWrap: 'wrap' as const,
+  } as React.CSSProperties,
+  kpi: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '2px',
+    minWidth: '100px',
+  } as React.CSSProperties,
+  kpiLabel: {
+    fontSize: '10px',
+    fontWeight: 500,
+    letterSpacing: '0.08em',
+    textTransform: 'uppercase' as const,
+    color: 'rgba(255, 255, 255, 0.45)',
+  } as React.CSSProperties,
+  kpiValueRow: {
+    display: 'flex',
+    alignItems: 'baseline',
+    gap: '6px',
+  } as React.CSSProperties,
+  kpiValue: {
+    fontSize: '22px',
+    fontWeight: 700,
+    fontVariantNumeric: 'tabular-nums' as const,
+    color: 'rgba(100, 220, 160, 1)',
+    letterSpacing: '-0.02em',
+  } as React.CSSProperties,
+  kpiValueSm: {
+    fontSize: '16px',
+    fontWeight: 600,
+    fontVariantNumeric: 'tabular-nums' as const,
+    color: 'rgba(255, 255, 255, 0.9)',
+  } as React.CSSProperties,
+  kpiHint: {
+    fontSize: '12px',
+    color: 'rgba(255, 180, 120, 0.85)',
+    fontWeight: 500,
+  } as React.CSSProperties,
+  sep: {
+    width: '1px',
+    height: '28px',
+    background: 'rgba(255, 255, 255, 0.08)',
+    flexShrink: 0,
+  } as React.CSSProperties,
+};
+
+// =============================================================================
+// SIMULATION LAB - Collapsible advanced section
+// =============================================================================
+
+const simLabStyles = {
+  panel: {
+    background: 'rgba(15, 15, 22, 0.6)',
+    border: '1px solid rgba(255, 255, 255, 0.06)',
+    borderRadius: '10px',
+    overflow: 'hidden',
+  } as React.CSSProperties,
+  header: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '10px 16px',
+    cursor: 'pointer',
+    userSelect: 'none' as const,
+  } as React.CSSProperties,
+  chevron: {
+    fontSize: '12px',
+    color: 'rgba(255, 255, 255, 0.4)',
+    width: '14px',
+  } as React.CSSProperties,
+  title: {
+    fontSize: '12px',
+    fontWeight: 600,
+    letterSpacing: '0.06em',
+    textTransform: 'uppercase' as const,
+    color: 'rgba(255, 255, 255, 0.6)',
+  } as React.CSSProperties,
+  badge: {
+    fontSize: '9px',
+    fontWeight: 600,
+    letterSpacing: '0.08em',
+    textTransform: 'uppercase' as const,
+    padding: '2px 6px',
+    borderRadius: '4px',
+    background: 'rgba(255, 180, 120, 0.12)',
+    color: 'rgba(255, 180, 120, 0.8)',
+  } as React.CSSProperties,
+  summaryRow: {
+    display: 'flex',
+    gap: '6px',
+    alignItems: 'center',
+  } as React.CSSProperties,
+  summaryBadge: {
+    fontSize: '10px',
+    padding: '2px 6px',
+    borderRadius: '4px',
+    background: 'rgba(255, 255, 255, 0.05)',
+    color: 'rgba(255, 255, 255, 0.5)',
+  } as React.CSSProperties,
+  body: {
+    padding: '0 16px 16px',
+    borderTop: '1px solid rgba(255, 255, 255, 0.04)',
   } as React.CSSProperties,
 };
 
@@ -1197,8 +1321,6 @@ export function MonetizationPage() {
 
   // UI state
   const [assumptionsExpanded, setAssumptionsExpanded] = useState(false);
-  const [corrOpen, setCorrOpen] = useState(false);
-  const [corrHovered, setCorrHovered] = useState(false);
   const [mapHoveredCountry, setMapHoveredCountry] = useState<string | null>(null);
   const [mapPinnedCountry, setMapPinnedCountry] = useState<string | null>(null);
 
@@ -1430,6 +1552,21 @@ export function MonetizationPage() {
     });
   }, [revenueGeoInsight, revenueMoodCorrelation, revenueGeoTotals]);
 
+  // Extract compact signal row values from insight bullets
+  const signalRowProps = useMemo(() => {
+    const find = (prefix: string) =>
+      revenueGeoInsight?.bullets.find(b => b.label.toLowerCase().startsWith(prefix))?.value ?? null;
+    return {
+      activeCountries: revenueGeoData.length,
+      concentration: find('concentration'),
+      top3Share: find('top 3'),
+      adPressure: find('ad pressure'),
+      confidenceLabel: revenueGeoInsight?.confidence.label ?? 'low',
+      stabilityLabel: revenueGeoInsight?.stability.label ?? 'emerging',
+      bottleneck: driverInsight.title,
+    };
+  }, [revenueGeoInsight, revenueGeoData.length, driverInsight.title]);
+
   return (
     <div style={styles.page}>
       {/* Sticky Filter Row */}
@@ -1458,487 +1595,442 @@ export function MonetizationPage() {
       <div style={{ marginTop: '8px', marginBottom: '16px' }}>
         <div style={sectionHeaderStyles.labelRow}>
           <span style={sectionHeaderStyles.label}>REVENUE OVERVIEW</span>
+          <InfoHint {...monetizationInfo.revenueOverview} />
           <div style={sectionHeaderStyles.divider} />
         </div>
       </div>
 
-      {/* TOP ROW: KPI Card + Top Countries */}
-      <div style={isDesktop ? styles.topRow : styles.topRowStacked}>
-        {/* Hero Revenue Card */}
-        <div style={styles.heroCard}>
-          <div style={styles.heroGlow} />
-          <p style={styles.heroLabel}>Estimated Revenue / Month</p>
-          <div style={styles.heroValueRow}>
-            <p style={styles.heroValue}>
+      {/* EXECUTIVE HEADER — compact KPI strip */}
+      <div style={execHeaderStyles.container}>
+        <div style={execHeaderStyles.kpi}>
+          <span style={execHeaderStyles.kpiLabel}>Revenue / Month</span>
+          <div style={execHeaderStyles.kpiValueRow}>
+            <span style={execHeaderStyles.kpiValue}>
               {loading ? '—' : formatNOK(calculations.revenuePerMonth)}
-            </p>
+            </span>
             {globalDeltas && <DeltaBadge value={globalDeltas.revenueMonthDeltaPct} />}
           </div>
-
-          <div style={styles.heroSecondary}>
-            <div style={styles.heroKpi}>
-              <span style={styles.heroKpiLabel}>Per Session</span>
-              <div style={styles.heroKpiValueRow}>
-                <span style={styles.heroKpiValue}>
-                  {loading ? '—' : formatNOK(calculations.revenuePerSession)}
-                </span>
-                {globalDeltas && <DeltaBadge value={globalDeltas.revenuePerSessionDeltaPct} />}
-              </div>
-            </div>
-            <div style={styles.heroKpi}>
-              <span style={styles.heroKpiLabel}>Impressions/Day</span>
-              <div style={styles.heroKpiValueRow}>
-                <span style={styles.heroKpiValue}>
-                  {loading ? '—' : formatNumber(calculations.impressionsPerDay, 0)}
-                </span>
-                {globalDeltas && <DeltaBadge value={globalDeltas.impressionsPerDayDeltaPct} />}
-              </div>
-            </div>
-            <div style={styles.heroKpi}>
-              <span style={styles.heroKpiLabel}>Sessions/Day</span>
-              <div style={styles.heroKpiValueRow}>
-                <span style={styles.heroKpiValue}>
-                  {loading ? '—' : formatNumber(sessionsPerDay, 0)}
-                </span>
-                {globalDeltas && <DeltaBadge value={globalDeltas.sessionsPerDayDeltaPct} />}
-              </div>
-            </div>
-          </div>
-
-          <div style={styles.heroInsight}>
-            <span style={styles.heroInsightLabel}>Bottleneck: </span>
-            {driverInsight.title}
+        </div>
+        <div style={execHeaderStyles.sep} />
+        <div style={execHeaderStyles.kpi}>
+          <span style={execHeaderStyles.kpiLabel}>Sessions / Day</span>
+          <div style={execHeaderStyles.kpiValueRow}>
+            <span style={execHeaderStyles.kpiValueSm}>{loading ? '—' : formatNumber(sessionsPerDay, 0)}</span>
+            {globalDeltas && <DeltaBadge value={globalDeltas.sessionsPerDayDeltaPct} />}
           </div>
         </div>
-
-        {/* Top Earning Countries */}
-        <div style={styles.countriesCard}>
-          <h2 style={styles.cardTitle}>Top Earning Countries</h2>
-
-          {countryLoading ? (
-            <div style={styles.emptyState}>Loading...</div>
-          ) : sortedCountryData.length === 0 ? (
-            <div style={styles.emptyState}>No country data yet</div>
-          ) : (
-            <div style={styles.tableWrapper}>
-              {sortedCountryData.map((row, index) => (
-                <div key={row.country_code} style={styles.countryRow}>
-                  <div style={index < 3 ? styles.countryRankTop : styles.countryRank}>
-                    {index + 1}
-                  </div>
-                  <div style={styles.countryInfo}>
-                    <div style={styles.countryName}>{getCountryName(row.country_code)}</div>
-                    <div style={styles.countryCode}>{row.country_code}</div>
-                  </div>
-                  <div style={styles.countryShare}>
-                    <div style={styles.shareBar}>
-                      <div style={{ 
-                        ...styles.shareBarFill, 
-                        width: `${(row.share_pct / maxShare) * 100}%` 
-                      }} />
-                    </div>
-                    <div style={styles.shareText}>{row.share_pct.toFixed(1)}%</div>
-                  </div>
-                  <div style={styles.countryRevenue}>
-                    {formatNOK(row.estimated_ad_revenue)}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+        <div style={execHeaderStyles.sep} />
+        <div style={execHeaderStyles.kpi}>
+          <span style={execHeaderStyles.kpiLabel}>Active Countries</span>
+          <span style={execHeaderStyles.kpiValueSm}>{optimizationData.length}</span>
+        </div>
+        <div style={execHeaderStyles.sep} />
+        <div style={execHeaderStyles.kpi}>
+          <span style={execHeaderStyles.kpiLabel}>Bottleneck</span>
+          <span style={execHeaderStyles.kpiHint}>{driverInsight.title}</span>
         </div>
       </div>
 
-      {/* MAIN ROW: Insights (left) + Sticky Map (right) */}
+      {/* MAIN ROW: Content (left) + Sticky Map (right) */}
       <div style={isDesktop ? styles.mainRow : styles.mainRowStacked}>
-        {/* LEFT: Insights Column */}
+        {/* LEFT: Main Column */}
         <div style={styles.insightsColumn}>
-          {/* SECTION: Monetization Signals */}
-          <div style={{ marginBottom: '16px' }}>
-            <div style={sectionHeaderStyles.labelRow}>
-              <span style={sectionHeaderStyles.label}>MONETIZATION SIGNALS</span>
-              <div style={sectionHeaderStyles.divider} />
-            </div>
-            <p style={sectionHeaderStyles.subtitle}>Tune assumptions and explore sensitivity</p>
-          </div>
-
-          {/* Collapsible Assumptions Panel */}
-          <div style={styles.assumptionsPanel}>
-            <div 
-              style={styles.assumptionsHeader}
-              onClick={() => setAssumptionsExpanded(!assumptionsExpanded)}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <h2 style={styles.assumptionsTitle}>Assumptions</h2>
-                <div style={styles.assumptionsSummary}>
-                  <span style={styles.assumptionsBadge}>eCPM {ecpm}</span>
-                  <span style={styles.assumptionsBadge}>Fill {(fillRate * 100).toFixed(0)}%</span>
-                  <span style={styles.assumptionsBadge}>Trigger {(triggerShare * 100).toFixed(0)}%</span>
-                </div>
-              </div>
-              <button style={styles.assumptionsToggle}>
-                {assumptionsExpanded ? '▲ Collapse' : '▼ Expand'}
-              </button>
-            </div>
-
-            {assumptionsExpanded && (
-              <div style={styles.assumptionsBody}>
-                <div style={styles.inputGroup}>
-                  <label style={styles.inputLabel}>eCPM (NOK)</label>
-                  <div style={styles.inputRow}>
-                    <input type="range" min="5" max="100" step="1" value={ecpm}
-                      onChange={(e) => setEcpm(Number(e.target.value))} style={styles.slider} />
-                    <input type="number" min="1" max="200" value={ecpm}
-                      onChange={(e) => setEcpm(clamp(Number(e.target.value), 1, 200))} style={styles.numberInput} />
-                  </div>
-                </div>
-                <div style={styles.inputGroup}>
-                  <label style={styles.inputLabel}>Fill rate</label>
-                  <div style={styles.inputRow}>
-                    <input type="range" min="0" max="1" step="0.01" value={fillRate}
-                      onChange={(e) => setFillRate(Number(e.target.value))} style={styles.slider} />
-                    <input type="number" min="0" max="1" step="0.01" value={fillRate}
-                      onChange={(e) => setFillRate(clamp(Number(e.target.value), 0, 1))} style={styles.numberInput} />
-                  </div>
-                </div>
-                <div style={styles.inputGroup}>
-                  <label style={styles.inputLabel}>Ads per session cap</label>
-                  <select value={adsPerSessionCap} onChange={(e) => setAdsPerSessionCap(Number(e.target.value))} style={styles.select}>
-                    <option value={0}>0</option>
-                    <option value={1}>1</option>
-                    <option value={2}>2</option>
-                    <option value={3}>3</option>
-                  </select>
-                </div>
-                <div style={styles.inputGroup}>
-                  <label style={styles.inputLabel}>Trigger share</label>
-                  <div style={styles.inputRow}>
-                    <input type="range" min="0" max="1" step="0.01" value={triggerShare}
-                      onChange={(e) => setTriggerShare(Number(e.target.value))} style={styles.slider} />
-                    <input type="number" min="0" max="1" step="0.01" value={triggerShare}
-                      onChange={(e) => setTriggerShare(clamp(Number(e.target.value), 0, 1))} style={styles.numberInput} />
-                  </div>
-                </div>
-                <div style={styles.inputGroup}>
-                  <label style={styles.inputLabel}>
-                    Drop rate after ad
-                    <span style={{ opacity: 0.6, marginLeft: '6px', fontSize: '9px' }}>
-                      {engagementData && adsShownSessions > 0 ? `Data: ${(dataDropRate * 100).toFixed(0)}%` : ''}
-                    </span>
-                  </label>
-                  <div style={styles.inputRow}>
-                    <input type="range" min="0" max="1" step="0.01" value={dropRateAfterAd}
-                      onChange={(e) => setDropRateAfterAd(Number(e.target.value))} style={styles.slider} />
-                    <input type="number" min="0" max="1" step="0.01" value={dropRateAfterAd}
-                      onChange={(e) => setDropRateAfterAd(clamp(Number(e.target.value), 0, 1))} style={styles.numberInput} />
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Sensitivity + Tips in a row */}
-          <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' as const }}>
-            <div style={{ ...styles.insightCard, flex: 1, minWidth: '140px' }}>
-              <h3 style={styles.insightTitle}>+10% Impact</h3>
-              {sensitivityAnalysis.length === 0 ? (
-                <p style={{ color: 'rgba(255, 255, 255, 0.4)', fontSize: '11px', margin: 0 }}>No data</p>
-              ) : (
-                <ul style={styles.sensitivityList}>
-                  {sensitivityAnalysis.map((item, i) => (
-                    <li key={i} style={styles.sensitivityItem}>
-                      {item.name}: <span style={styles.sensitivityImpact}>+{item.impact.toFixed(1)}%</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            <div style={{ ...styles.insightCard, flex: 1, minWidth: '140px' }}>
-              <h3 style={styles.insightTitle}>Tips</h3>
-              <ul style={styles.recommendationList}>
-                {recommendations.map((rec, i) => (
-                  <li key={i} style={styles.recommendationItem}>
-                    <span style={styles.recommendationIcon}>→</span>
-                    <span>{rec}</span>
-                  </li>
-                ))}
-              </ul>
+          {/* SECTION: Country Optimization — primary action area */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+            <SectionHeader 
+              title="COUNTRY OPTIMIZATION" 
+              subtitle="Signals, policy, and recommendations — unified per-country intelligence" 
+            />
+            <div style={{ marginTop: '34px' }}>
+              <InfoHint {...monetizationInfo.countryOptimization} />
             </div>
           </div>
-
-          {/* SECTION: Global Revenue Narrative */}
-          <SectionHeader title="GLOBAL REVENUE NARRATIVE" subtitle="Synthesized view of drivers, risks, and opportunities" />
-
-          {/* Revenue Narrative (Phase 5B) */}
-          {revenueNarrative && (
-            <div style={{
-              ...styles.narrativeCard,
-              ...(revenueNarrative.tone === 'positive' 
-                ? styles.narrativeCardPositive 
-                : revenueNarrative.tone === 'risk' 
-                ? styles.narrativeCardRisk 
-                : {}),
-            }}>
-              <span style={styles.narrativeLabel}>AI Interpretation</span>
-              <h3 style={{
-                ...styles.narrativeHeadline,
-                ...(revenueNarrative.tone === 'positive' 
-                  ? styles.narrativeHeadlinePositive
-                  : revenueNarrative.tone === 'risk'
-                  ? styles.narrativeHeadlineRisk
-                  : styles.narrativeHeadlineNeutral),
-              }}>
-                {revenueNarrative.headline}
-              </h3>
-
-              <p style={styles.narrativeSummary}>
-                {revenueNarrative.summary}
-              </p>
-
-              {revenueNarrative.drivers.length > 0 && (
-                <div style={styles.narrativeSection}>
-                  <div style={{ ...styles.narrativeSectionLabel, ...styles.narrativeDriversLabel }}>
-                    Drivers
-                  </div>
-                  <ul style={styles.narrativeList}>
-                    {revenueNarrative.drivers.map((driver, i) => (
-                      <li key={i} style={{ ...styles.narrativeListItem, ...styles.narrativeDriverItem }}>
-                        <span style={{ ...styles.narrativeBullet, ...styles.narrativeDriverBullet }}>+</span>
-                        <span>{driver}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {revenueNarrative.risks.length > 0 && (
-                <div style={styles.narrativeSection}>
-                  <div style={{ ...styles.narrativeSectionLabel, ...styles.narrativeRisksLabel }}>
-                    Risks
-                  </div>
-                  <ul style={styles.narrativeList}>
-                    {revenueNarrative.risks.map((risk, i) => (
-                      <li key={i} style={{ ...styles.narrativeListItem, ...styles.narrativeRiskItem }}>
-                        <span style={{ ...styles.narrativeBullet, ...styles.narrativeRiskBullet }}>!</span>
-                        <span>{risk}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {revenueNarrative.opportunity && (
-                <p style={styles.narrativeOpportunity}>
-                  {revenueNarrative.opportunity}
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* SECTION: Geographic Footprint */}
-          <SectionHeader title="GEOGRAPHIC FOOTPRINT" subtitle="Regional patterns and concentration analysis" />
-
-          {/* Geo Insight Language Block */}
-          {revenueGeoInsight && (
-            <div style={styles.geoInsightCard}>
-              <span style={styles.geoInsightLabel}>Global Status</span>
-              <p style={styles.geoInsightHeadline}>{revenueGeoInsight.headline}</p>
-              
-              {revenueGeoInsight.bullets.length > 0 && (
-                <ul style={styles.geoInsightBullets}>
-                  {revenueGeoInsight.bullets.map((bullet, i) => (
-                    <li key={i} style={styles.geoInsightBullet}>
-                      <span>{bullet.label}</span>
-                      <span style={{
-                        ...styles.geoInsightBulletValue,
-                        color: bullet.tone === 'good' 
-                          ? 'rgba(100, 200, 150, 0.9)'
-                          : bullet.tone === 'warn'
-                          ? 'rgba(255, 180, 120, 0.9)'
-                          : 'rgba(255, 255, 255, 0.8)',
-                      }}>
-                        {bullet.value}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              
-              {revenueGeoInsight.warnings.length > 0 && (
-                <div style={styles.geoInsightWarnings}>
-                  {revenueGeoInsight.warnings.map((warning, i) => (
-                    <p key={i} style={styles.geoInsightWarning}>{warning}</p>
-                  ))}
-                </div>
-              )}
-              
-              {revenueGeoInsight.recommendation && (
-                <p style={styles.geoInsightRecommendation}>
-                  {revenueGeoInsight.recommendation}
-                </p>
-              )}
-
-              {/* Phase 3: Momentum, Confidence, Stability */}
-              <div style={styles.geoInsightMeta}>
-                {revenueGeoInsight.momentum && (
-                  <div style={{
-                    ...styles.geoInsightMomentum,
-                    color: revenueGeoInsight.momentum.tone === 'good'
-                      ? 'rgba(100, 200, 150, 0.9)'
-                      : revenueGeoInsight.momentum.tone === 'warn'
-                      ? 'rgba(255, 180, 120, 0.9)'
-                      : 'rgba(255, 255, 255, 0.7)',
-                  }}>
-                    {revenueGeoInsight.momentum.headline}
-                  </div>
-                )}
-
-                <div style={styles.geoInsightMetaRow}>
-                  <span style={{
-                    ...styles.geoInsightBadge,
-                    ...(revenueGeoInsight.confidence.label === 'high' 
-                      ? styles.geoInsightBadgeHigh
-                      : revenueGeoInsight.confidence.label === 'medium'
-                      ? styles.geoInsightBadgeMedium
-                      : styles.geoInsightBadgeLow),
-                  }}>
-                    Confidence: {revenueGeoInsight.confidence.label}
-                  </span>
-
-                  <span style={{
-                    ...styles.geoInsightBadge,
-                    ...(revenueGeoInsight.stability.label === 'stable'
-                      ? styles.geoInsightBadgeStable
-                      : revenueGeoInsight.stability.label === 'volatile'
-                      ? styles.geoInsightBadgeVolatile
-                      : styles.geoInsightBadgeEmerging),
-                  }}>
-                    {revenueGeoInsight.stability.label}
-                  </span>
-                </div>
-
-                <div style={styles.geoInsightMetaReason}>
-                  {revenueGeoInsight.confidence.reasons[0] && (
-                    <span>{revenueGeoInsight.confidence.reasons[0]}</span>
-                  )}
-                  {revenueGeoInsight.stability.reasons[0] && revenueGeoInsight.confidence.reasons[0] && (
-                    <span> · </span>
-                  )}
-                  {revenueGeoInsight.stability.reasons[0] && (
-                    <span>{revenueGeoInsight.stability.reasons[0]}</span>
-                  )}
-                </div>
-              </div>
-
-              {/* Phase 4: Revenue × Mood Correlation (Collapsible) */}
-              {revenueMoodCorrelation && (
-                <div style={styles.corrSection}>
-                  <div 
-                    style={{
-                      ...styles.corrHeader,
-                      ...(corrHovered ? styles.corrHeaderHover : {}),
-                    }}
-                    onClick={() => setCorrOpen(v => !v)}
-                    onMouseEnter={() => setCorrHovered(true)}
-                    onMouseLeave={() => setCorrHovered(false)}
-                  >
-                    <div style={styles.corrHeaderLeft}>
-                      <span style={{
-                        ...styles.corrChevron,
-                        transform: corrOpen ? 'rotate(90deg)' : 'rotate(0deg)',
-                      }}>
-                        ▶
-                      </span>
-                      <h4 style={styles.corrTitle}>Emotional Context</h4>
-                      {!corrOpen && (
-                        <span style={styles.corrPreview}>
-                          {revenueMoodCorrelation.headline}
-                        </span>
-                      )}
-                    </div>
-                    <div style={styles.corrHeaderRight}>
-                      <span style={styles.corrToggleLabel}>
-                        {corrOpen ? 'Hide' : 'Show'}
-                      </span>
-                    </div>
-                  </div>
-                  
-                  {corrOpen && (
-                    <div style={styles.corrBody}>
-                      <p style={{
-                        ...styles.corrHeadline,
-                        color: revenueMoodCorrelation.signal === 'tailwind'
-                          ? 'rgba(100, 200, 150, 0.9)'
-                          : revenueMoodCorrelation.signal === 'headwind' || revenueMoodCorrelation.signal === 'controversy'
-                          ? 'rgba(255, 180, 120, 0.9)'
-                          : revenueMoodCorrelation.signal === 'opportunity'
-                          ? 'rgba(100, 180, 255, 0.85)'
-                          : 'rgba(255, 255, 255, 0.65)',
-                      }}>
-                        {revenueMoodCorrelation.headline}
-                      </p>
-
-                      {revenueMoodCorrelation.bullets.length > 0 && (
-                        <ul style={styles.corrBullets}>
-                          {revenueMoodCorrelation.bullets.map((bullet, i) => (
-                            <li key={i} style={styles.corrBullet}>
-                              <span>{bullet.label}</span>
-                              <span style={{
-                                ...styles.corrBulletValue,
-                                color: bullet.tone === 'good'
-                                  ? 'rgba(100, 200, 150, 0.9)'
-                                  : bullet.tone === 'warn'
-                                  ? 'rgba(255, 180, 120, 0.9)'
-                                  : 'rgba(255, 255, 255, 0.75)',
-                              }}>
-                                {bullet.value}
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-
-                      <div style={styles.corrConfidence}>
-                        <span style={{
-                          ...styles.geoInsightBadge,
-                          ...(revenueMoodCorrelation.confidence.label === 'high'
-                            ? styles.geoInsightBadgeHigh
-                            : revenueMoodCorrelation.confidence.label === 'medium'
-                            ? styles.geoInsightBadgeMedium
-                            : styles.geoInsightBadgeLow),
-                        }}>
-                          {revenueMoodCorrelation.confidence.label}
-                        </span>
-                        {revenueMoodCorrelation.confidence.reasons[0] && (
-                          <span style={{ color: 'rgba(255, 255, 255, 0.4)' }}>
-                            {revenueMoodCorrelation.confidence.reasons[0]}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* SECTION: Unified Country Monetization Optimization */}
-          <SectionHeader 
-            title="COUNTRY OPTIMIZATION" 
-            subtitle="Signals, policy, and recommendations — unified per-country intelligence" 
-          />
           
           <CountryOptimizationPanel
             data={optimizationData}
             loading={optimizationLoading}
             error={optimizationError}
           />
+
+          {/* LAG 2: Global Signal Row — compact strategic strip */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <GlobalSignalRow {...signalRowProps} />
+            <InfoHint {...monetizationInfo.globalSignalRow} />
+          </div>
+
+          {/* LAG 3: Advanced Intelligence — all heavy/textual content, collapsed */}
+          <AdvancedIntelligenceSection
+            itemCount={
+              (revenueGeoInsight ? 1 : 0) +
+              (revenueMoodCorrelation ? 1 : 0) +
+              1 /* Simulation Lab */
+            }
+            headerRight={<InfoHint {...monetizationInfo.advancedIntelligence} />}
+          >
+            {/* ARCHIVED: Full Global Status (moved from Geographic Footprint) */}
+            {revenueGeoInsight && (
+              <IntelSubSection title="Global Status" headerRight={<InfoHint {...monetizationInfo.globalStatus} />}>
+                <div style={styles.geoInsightCard}>
+                  <p style={styles.geoInsightHeadline}>{revenueGeoInsight.headline}</p>
+                  
+                  {revenueGeoInsight.bullets.length > 0 && (
+                    <ul style={styles.geoInsightBullets}>
+                      {revenueGeoInsight.bullets.map((bullet, i) => (
+                        <li key={i} style={styles.geoInsightBullet}>
+                          <span>{bullet.label}</span>
+                          <span style={{
+                            ...styles.geoInsightBulletValue,
+                            color: bullet.tone === 'good' 
+                              ? 'rgba(100, 200, 150, 0.9)'
+                              : bullet.tone === 'warn'
+                              ? 'rgba(255, 180, 120, 0.9)'
+                              : 'rgba(255, 255, 255, 0.8)',
+                          }}>
+                            {bullet.value}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  
+                  {revenueGeoInsight.warnings.length > 0 && (
+                    <div style={styles.geoInsightWarnings}>
+                      {revenueGeoInsight.warnings.map((warning, i) => (
+                        <p key={i} style={styles.geoInsightWarning}>{warning}</p>
+                      ))}
+                    </div>
+                  )}
+                  
+                  {revenueGeoInsight.recommendation && (
+                    <p style={styles.geoInsightRecommendation}>
+                      {revenueGeoInsight.recommendation}
+                    </p>
+                  )}
+
+                  <div style={styles.geoInsightMeta}>
+                    {revenueGeoInsight.momentum && (
+                      <div style={{
+                        ...styles.geoInsightMomentum,
+                        color: revenueGeoInsight.momentum.tone === 'good'
+                          ? 'rgba(100, 200, 150, 0.9)'
+                          : revenueGeoInsight.momentum.tone === 'warn'
+                          ? 'rgba(255, 180, 120, 0.9)'
+                          : 'rgba(255, 255, 255, 0.7)',
+                      }}>
+                        {revenueGeoInsight.momentum.headline}
+                      </div>
+                    )}
+
+                    <div style={styles.geoInsightMetaRow}>
+                      <span style={{
+                        ...styles.geoInsightBadge,
+                        ...(revenueGeoInsight.confidence.label === 'high' 
+                          ? styles.geoInsightBadgeHigh
+                          : revenueGeoInsight.confidence.label === 'medium'
+                          ? styles.geoInsightBadgeMedium
+                          : styles.geoInsightBadgeLow),
+                      }}>
+                        Confidence: {revenueGeoInsight.confidence.label}
+                      </span>
+
+                      <span style={{
+                        ...styles.geoInsightBadge,
+                        ...(revenueGeoInsight.stability.label === 'stable'
+                          ? styles.geoInsightBadgeStable
+                          : revenueGeoInsight.stability.label === 'volatile'
+                          ? styles.geoInsightBadgeVolatile
+                          : styles.geoInsightBadgeEmerging),
+                      }}>
+                        {revenueGeoInsight.stability.label}
+                      </span>
+                    </div>
+
+                    <div style={styles.geoInsightMetaReason}>
+                      {revenueGeoInsight.confidence.reasons[0] && (
+                        <span>{revenueGeoInsight.confidence.reasons[0]}</span>
+                      )}
+                      {revenueGeoInsight.stability.reasons[0] && revenueGeoInsight.confidence.reasons[0] && (
+                        <span> · </span>
+                      )}
+                      {revenueGeoInsight.stability.reasons[0] && (
+                        <span>{revenueGeoInsight.stability.reasons[0]}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </IntelSubSection>
+            )}
+
+            {/* ARCHIVED: Emotional Context (moved from Geographic Footprint) */}
+            {revenueMoodCorrelation && (
+              <IntelSubSection title="Emotional Context" headerRight={<InfoHint {...monetizationInfo.emotionalContext} />}>
+                <div style={styles.corrBody}>
+                  <p style={{
+                    ...styles.corrHeadline,
+                    color: revenueMoodCorrelation.signal === 'tailwind'
+                      ? 'rgba(100, 200, 150, 0.9)'
+                      : revenueMoodCorrelation.signal === 'headwind' || revenueMoodCorrelation.signal === 'controversy'
+                      ? 'rgba(255, 180, 120, 0.9)'
+                      : revenueMoodCorrelation.signal === 'opportunity'
+                      ? 'rgba(100, 180, 255, 0.85)'
+                      : 'rgba(255, 255, 255, 0.65)',
+                  }}>
+                    {revenueMoodCorrelation.headline}
+                  </p>
+
+                  {revenueMoodCorrelation.bullets.length > 0 && (
+                    <ul style={styles.corrBullets}>
+                      {revenueMoodCorrelation.bullets.map((bullet, i) => (
+                        <li key={i} style={styles.corrBullet}>
+                          <span>{bullet.label}</span>
+                          <span style={{
+                            ...styles.corrBulletValue,
+                            color: bullet.tone === 'good'
+                              ? 'rgba(100, 200, 150, 0.9)'
+                              : bullet.tone === 'warn'
+                              ? 'rgba(255, 180, 120, 0.9)'
+                              : 'rgba(255, 255, 255, 0.75)',
+                          }}>
+                            {bullet.value}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  <div style={styles.corrConfidence}>
+                    <span style={{
+                      ...styles.geoInsightBadge,
+                      ...(revenueMoodCorrelation.confidence.label === 'high'
+                        ? styles.geoInsightBadgeHigh
+                        : revenueMoodCorrelation.confidence.label === 'medium'
+                        ? styles.geoInsightBadgeMedium
+                        : styles.geoInsightBadgeLow),
+                    }}>
+                      {revenueMoodCorrelation.confidence.label}
+                    </span>
+                    {revenueMoodCorrelation.confidence.reasons[0] && (
+                      <span style={{ color: 'rgba(255, 255, 255, 0.4)' }}>
+                        {revenueMoodCorrelation.confidence.reasons[0]}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </IntelSubSection>
+            )}
+
+            {/* ARCHIVED: Simulation Lab (moved from main flow) */}
+            <IntelSubSection title="Simulation Lab" headerRight={<InfoHint {...monetizationInfo.simulationLab} />}>
+              <div style={simLabStyles.panel}>
+                <div 
+                  style={simLabStyles.header}
+                  onClick={() => setAssumptionsExpanded(!assumptionsExpanded)}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={simLabStyles.chevron}>
+                      {assumptionsExpanded ? '▾' : '▸'}
+                    </span>
+                    <span style={simLabStyles.title}>Parameters</span>
+                    <span style={simLabStyles.badge}>Advanced</span>
+                  </div>
+                  <div style={simLabStyles.summaryRow}>
+                    <span style={simLabStyles.summaryBadge}>eCPM {ecpm}</span>
+                    <span style={simLabStyles.summaryBadge}>Fill {(fillRate * 100).toFixed(0)}%</span>
+                    <span style={simLabStyles.summaryBadge}>Trigger {(triggerShare * 100).toFixed(0)}%</span>
+                  </div>
+                </div>
+
+                {assumptionsExpanded && (
+                  <div style={simLabStyles.body}>
+                    <div style={styles.inputGroup}>
+                      <label style={styles.inputLabel}>eCPM (NOK)</label>
+                      <div style={styles.inputRow}>
+                        <input type="range" min="5" max="100" step="1" value={ecpm}
+                          onChange={(e) => setEcpm(Number(e.target.value))} style={styles.slider} />
+                        <input type="number" min="1" max="200" value={ecpm}
+                          onChange={(e) => setEcpm(clamp(Number(e.target.value), 1, 200))} style={styles.numberInput} />
+                      </div>
+                    </div>
+                    <div style={styles.inputGroup}>
+                      <label style={styles.inputLabel}>Fill rate</label>
+                      <div style={styles.inputRow}>
+                        <input type="range" min="0" max="1" step="0.01" value={fillRate}
+                          onChange={(e) => setFillRate(Number(e.target.value))} style={styles.slider} />
+                        <input type="number" min="0" max="1" step="0.01" value={fillRate}
+                          onChange={(e) => setFillRate(clamp(Number(e.target.value), 0, 1))} style={styles.numberInput} />
+                      </div>
+                    </div>
+                    <div style={styles.inputGroup}>
+                      <label style={styles.inputLabel}>Ads per session cap</label>
+                      <select value={adsPerSessionCap} onChange={(e) => setAdsPerSessionCap(Number(e.target.value))} style={styles.select}>
+                        <option value={0}>0</option>
+                        <option value={1}>1</option>
+                        <option value={2}>2</option>
+                        <option value={3}>3</option>
+                      </select>
+                    </div>
+                    <div style={styles.inputGroup}>
+                      <label style={styles.inputLabel}>Trigger share</label>
+                      <div style={styles.inputRow}>
+                        <input type="range" min="0" max="1" step="0.01" value={triggerShare}
+                          onChange={(e) => setTriggerShare(Number(e.target.value))} style={styles.slider} />
+                        <input type="number" min="0" max="1" step="0.01" value={triggerShare}
+                          onChange={(e) => setTriggerShare(clamp(Number(e.target.value), 0, 1))} style={styles.numberInput} />
+                      </div>
+                    </div>
+                    <div style={styles.inputGroup}>
+                      <label style={styles.inputLabel}>
+                        Drop rate after ad
+                        <span style={{ opacity: 0.6, marginLeft: '6px', fontSize: '9px' }}>
+                          {engagementData && adsShownSessions > 0 ? `Data: ${(dataDropRate * 100).toFixed(0)}%` : ''}
+                        </span>
+                      </label>
+                      <div style={styles.inputRow}>
+                        <input type="range" min="0" max="1" step="0.01" value={dropRateAfterAd}
+                          onChange={(e) => setDropRateAfterAd(Number(e.target.value))} style={styles.slider} />
+                        <input type="number" min="0" max="1" step="0.01" value={dropRateAfterAd}
+                          onChange={(e) => setDropRateAfterAd(clamp(Number(e.target.value), 0, 1))} style={styles.numberInput} />
+                      </div>
+                    </div>
+
+                    {/* Sensitivity + Tips */}
+                    <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' as const, marginTop: '16px' }}>
+                      <div style={{ ...styles.insightCard, flex: 1, minWidth: '140px' }}>
+                        <h3 style={styles.insightTitle}>+10% Impact</h3>
+                        {sensitivityAnalysis.length === 0 ? (
+                          <p style={{ color: 'rgba(255, 255, 255, 0.4)', fontSize: '11px', margin: 0 }}>No data</p>
+                        ) : (
+                          <ul style={styles.sensitivityList}>
+                            {sensitivityAnalysis.map((item, i) => (
+                              <li key={i} style={styles.sensitivityItem}>
+                                {item.name}: <span style={styles.sensitivityImpact}>+{item.impact.toFixed(1)}%</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+
+                      <div style={{ ...styles.insightCard, flex: 1, minWidth: '140px' }}>
+                        <h3 style={styles.insightTitle}>Tips</h3>
+                        <ul style={styles.recommendationList}>
+                          {recommendations.map((rec, i) => (
+                            <li key={i} style={styles.recommendationItem}>
+                              <span style={styles.recommendationIcon}>→</span>
+                              <span>{rec}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </IntelSubSection>
+
+            {/* ARCHIVED: AI Interpretation (Revenue Narrative) */}
+            {revenueNarrative && (
+              <IntelSubSection title="AI Interpretation" headerRight={<InfoHint {...monetizationInfo.aiInterpretation} />}>
+                <div style={{
+                  ...styles.narrativeCard,
+                  ...(revenueNarrative.tone === 'positive' 
+                    ? styles.narrativeCardPositive 
+                    : revenueNarrative.tone === 'risk' 
+                    ? styles.narrativeCardRisk 
+                    : {}),
+                }}>
+                  <h3 style={{
+                    ...styles.narrativeHeadline,
+                    ...(revenueNarrative.tone === 'positive' 
+                      ? styles.narrativeHeadlinePositive
+                      : revenueNarrative.tone === 'risk'
+                      ? styles.narrativeHeadlineRisk
+                      : styles.narrativeHeadlineNeutral),
+                  }}>
+                    {revenueNarrative.headline}
+                  </h3>
+                  <p style={styles.narrativeSummary}>
+                    {revenueNarrative.summary}
+                  </p>
+                  {revenueNarrative.drivers.length > 0 && (
+                    <div style={styles.narrativeSection}>
+                      <div style={{ ...styles.narrativeSectionLabel, ...styles.narrativeDriversLabel }}>
+                        Drivers
+                      </div>
+                      <ul style={styles.narrativeList}>
+                        {revenueNarrative.drivers.map((driver, i) => (
+                          <li key={i} style={{ ...styles.narrativeListItem, ...styles.narrativeDriverItem }}>
+                            <span style={{ ...styles.narrativeBullet, ...styles.narrativeDriverBullet }}>+</span>
+                            <span>{driver}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {revenueNarrative.risks.length > 0 && (
+                    <div style={styles.narrativeSection}>
+                      <div style={{ ...styles.narrativeSectionLabel, ...styles.narrativeRisksLabel }}>
+                        Risks
+                      </div>
+                      <ul style={styles.narrativeList}>
+                        {revenueNarrative.risks.map((risk, i) => (
+                          <li key={i} style={{ ...styles.narrativeListItem, ...styles.narrativeRiskItem }}>
+                            <span style={{ ...styles.narrativeBullet, ...styles.narrativeRiskBullet }}>!</span>
+                            <span>{risk}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {revenueNarrative.opportunity && (
+                    <p style={styles.narrativeOpportunity}>
+                      {revenueNarrative.opportunity}
+                    </p>
+                  )}
+                </div>
+              </IntelSubSection>
+            )}
+
+            {/* ARCHIVED: Top Earning Countries */}
+            {sortedCountryData.length > 0 && (
+              <IntelSubSection title="Top Earning Countries" headerRight={<InfoHint {...monetizationInfo.topEarningCountries} />}>
+                <div style={styles.countriesCard}>
+                  <div style={styles.tableWrapper}>
+                    {sortedCountryData.map((row, index) => (
+                      <div key={row.country_code} style={styles.countryRow}>
+                        <div style={index < 3 ? styles.countryRankTop : styles.countryRank}>
+                          {index + 1}
+                        </div>
+                        <div style={styles.countryInfo}>
+                          <div style={styles.countryName}>{getCountryName(row.country_code)}</div>
+                          <div style={styles.countryCode}>{row.country_code}</div>
+                        </div>
+                        <div style={styles.countryShare}>
+                          <div style={styles.shareBar}>
+                            <div style={{ 
+                              ...styles.shareBarFill, 
+                              width: `${(row.share_pct / maxShare) * 100}%` 
+                            }} />
+                          </div>
+                          <div style={styles.shareText}>{row.share_pct.toFixed(1)}%</div>
+                        </div>
+                        <div style={styles.countryRevenue}>
+                          {formatNOK(row.estimated_ad_revenue)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </IntelSubSection>
+            )}
+          </AdvancedIntelligenceSection>
         </div>
 
         {/* RIGHT: Sticky Map Column */}
         <div style={isDesktop ? styles.mapColumn : styles.mapColumnStacked}>
           <div style={styles.mapPanel}>
+            <div style={{ position: 'absolute', top: 8, right: 8, zIndex: 20 }}>
+              <InfoHint {...monetizationInfo.geographicMap} />
+            </div>
             <RevenueMapPhase1
               data={revenueGeoData}
               loading={revenueGeoLoading}

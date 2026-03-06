@@ -1,5 +1,5 @@
 /**
- * Lethe Session Manager v1
+ * Lethe Session Manager v2
  * 
  * Manages anonymous sessions for metrics + monetization without user identifiers.
  * 
@@ -8,19 +8,27 @@
  * - Session continues if backgrounded < 10 min
  * - No idle timeout while in foreground
  * 
- * Persistence (LOCKED):
- * - ONLY lastBackgroundAt is stored in localStorage (for threshold detection)
- * - All other state (sessionId, pageFetchCount, adArmed, adShown) is in-memory only
- * - Page refresh = new session (by design)
+ * Persistence:
+ * - lastBackgroundAt stored in localStorage (for threshold detection)
+ * - pageFetchCount and adsShownCount stored in sessionStorage (survives refresh within session)
+ * - Other state (sessionId, adArmed) is in-memory only
  * 
- * Monetization Rules (LOCKED):
+ * Monetization Rules (POLICY-DRIVEN):
  * - pageFetchCount increments on "next page" fetches (not initial load)
- * - When pageFetchCount reaches AD_TRIGGER_THRESHOLD, adArmed becomes true
- * - Max 1 ad per session (adShown prevents further ads)
+ * - When pageFetchCount reaches policy.triggerPages, adArmed becomes true
+ * - Max ads per session = policy.adsPerSessionCap (can be > 1)
+ * - If policy.enabled = false, ads never show
+ * - After showing an ad, pageFetchCount resets to re-arm for next ad (up to cap)
  */
 
-// Debug logging (dev only)
+import { getAdPolicySync, type AdPolicy } from '../hooks/useAdPolicyRuntime'
+import { resolveCountryCode } from '../utils/resolveCountryCode'
+
+// Debug logging (dev only, enabled via localStorage debug_ads=1)
 const DEBUG = import.meta.env.DEV
+const DEBUG_ADS = (
+  DEBUG && typeof localStorage !== 'undefined' && localStorage.getItem('debug_ads') === '1'
+) || (typeof localStorage !== 'undefined' && localStorage.getItem('debug_ads') === '1')
 
 function log(...args: unknown[]) {
   if (DEBUG) {
@@ -28,26 +36,103 @@ function log(...args: unknown[]) {
   }
 }
 
+function adLog(...args: unknown[]) {
+  if (DEBUG_ADS || DEBUG) {
+    console.log('[session:ad]', ...args)
+  }
+}
+
+function adsLog(...args: unknown[]) {
+  if (DEBUG_ADS || DEBUG) {
+    console.log('[ads]', ...args)
+  }
+}
+
+function adPolicyEventLog(eventName: string, policyMeta: PolicyEventMeta): void {
+  if (DEBUG_ADS) {
+    console.log(
+      `[ad-policy-event] ${eventName}`,
+      `country=${policyMeta.country_code}`,
+      `cap=${policyMeta.ads_per_session_cap}`,
+      `trigger=${policyMeta.trigger_pages}`,
+      `source=${policyMeta.source}`
+    )
+  }
+}
+
+// =============================================================================
+// POLICY EVENT METADATA
+// =============================================================================
+
+/**
+ * Policy metadata included in ad-related events
+ */
+interface PolicyEventMeta {
+  country_code: string
+  ads_per_session_cap: number
+  trigger_pages: number
+  enabled: boolean
+  source: 'default' | 'override' | 'fallback'
+}
+
+/**
+ * Build policy metadata for event logging
+ * Uses cached policy, falls back to safe defaults if missing
+ */
+function buildPolicyEventMeta(): PolicyEventMeta {
+  const policy = getPolicy()
+  const countryCode = resolveCountryCode()
+  
+  // If policy is missing or incomplete, use fallback
+  if (!policy || policy.adsPerSessionCap === undefined) {
+    return {
+      country_code: countryCode || 'ZZ',
+      ads_per_session_cap: FALLBACK_ADS_PER_SESSION_CAP,
+      trigger_pages: FALLBACK_TRIGGER_PAGES,
+      enabled: true,
+      source: 'fallback',
+    }
+  }
+  
+  return {
+    country_code: countryCode || 'ZZ',
+    ads_per_session_cap: policy.adsPerSessionCap ?? FALLBACK_ADS_PER_SESSION_CAP,
+    trigger_pages: policy.triggerPages ?? FALLBACK_TRIGGER_PAGES,
+    enabled: policy.enabled ?? true,
+    source: (policy.source === 'override' || policy.source === 'default') 
+      ? policy.source 
+      : 'fallback',
+  }
+}
+
 // Constants
 const BACKGROUND_THRESHOLD_MS = 10 * 60 * 1000 // 10 minutes
-const AD_TRIGGER_THRESHOLD = 4 // Page fetches before ad arms
 const STORAGE_KEY_BACKGROUND = 'lethe:lastBackgroundAt'
+const STORAGE_KEY_PAGE_FETCH_COUNT = 'lethe.ad_session.pageFetchCount'
+const STORAGE_KEY_ADS_SHOWN_COUNT = 'lethe.ad_session.adsShownCount'
 
-// Session state interface (in-memory only, except lastBackgroundAt)
+// Fallback defaults (used if policy not yet loaded)
+const FALLBACK_TRIGGER_PAGES = 6
+const FALLBACK_ADS_PER_SESSION_CAP = 1
+
+// Session state interface
 interface SessionState {
   sessionId: string
   pageFetchCount: number
+  adsShownCount: number
   adArmed: boolean
-  adShown: boolean
 }
 
 // In-memory state (source of truth during runtime)
 let state: SessionState = {
   sessionId: '',
   pageFetchCount: 0,
+  adsShownCount: 0,
   adArmed: false,
-  adShown: false,
 }
+
+// Cached policy (updated via setAdPolicy)
+let cachedPolicy: AdPolicy | null = null
 
 /**
  * Generate a random session ID (UUID-like)
@@ -99,27 +184,162 @@ function clearLastBackgroundAt(): void {
 }
 
 /**
+ * Get session counters from sessionStorage
+ */
+function getSessionCounters(): { pageFetchCount: number; adsShownCount: number } {
+  try {
+    const pageFetch = sessionStorage.getItem(STORAGE_KEY_PAGE_FETCH_COUNT)
+    const adsShown = sessionStorage.getItem(STORAGE_KEY_ADS_SHOWN_COUNT)
+    return {
+      pageFetchCount: pageFetch ? parseInt(pageFetch, 10) || 0 : 0,
+      adsShownCount: adsShown ? parseInt(adsShown, 10) || 0 : 0,
+    }
+  } catch {
+    return { pageFetchCount: 0, adsShownCount: 0 }
+  }
+}
+
+/**
+ * Save session counters to sessionStorage
+ */
+function saveSessionCounters(): void {
+  try {
+    sessionStorage.setItem(STORAGE_KEY_PAGE_FETCH_COUNT, String(state.pageFetchCount))
+    sessionStorage.setItem(STORAGE_KEY_ADS_SHOWN_COUNT, String(state.adsShownCount))
+  } catch {
+    // sessionStorage unavailable
+  }
+}
+
+/**
+ * Clear session counters from sessionStorage
+ */
+function clearSessionCounters(): void {
+  try {
+    sessionStorage.removeItem(STORAGE_KEY_PAGE_FETCH_COUNT)
+    sessionStorage.removeItem(STORAGE_KEY_ADS_SHOWN_COUNT)
+  } catch {
+    // sessionStorage unavailable
+  }
+}
+
+/**
+ * Get current effective policy (cached or sync fetch)
+ */
+function getPolicy(): AdPolicy {
+  if (cachedPolicy) {
+    return cachedPolicy
+  }
+  // Try to get from sync cache (if hook has run before)
+  return getAdPolicySync()
+}
+
+/**
+ * Set ad policy (called from React component after hook loads)
+ */
+export function setAdPolicy(policy: AdPolicy): void {
+  cachedPolicy = policy
+  adLog('Policy set:', policy)
+  
+  // Re-evaluate ad armed state with new policy
+  evaluateAdArmed()
+}
+
+/**
+ * Evaluate whether ad should be armed based on current state and policy
+ */
+function evaluateAdArmed(): void {
+  const policy = getPolicy()
+  const triggerPages = policy.triggerPages ?? FALLBACK_TRIGGER_PAGES
+  const cap = policy.adsPerSessionCap ?? FALLBACK_ADS_PER_SESSION_CAP
+
+  // If ads disabled or cap reached, never arm
+  if (!policy.enabled) {
+    state.adArmed = false
+    adsLog('evaluateAdArmed: ads disabled by policy')
+    return
+  }
+  
+  if (state.adsShownCount >= cap) {
+    state.adArmed = false
+    adsLog('evaluateAdArmed: cap reached', { adsShownCount: state.adsShownCount, cap })
+    return
+  }
+
+  // Arm if we've reached trigger threshold
+  if (state.pageFetchCount >= triggerPages) {
+    if (!state.adArmed) {
+      state.adArmed = true
+      adsLog('AD ARMED!', { 
+        pageFetchCount: state.pageFetchCount, 
+        triggerPages, 
+        adsShownCount: state.adsShownCount, 
+        cap,
+        source: policy.source,
+      })
+    }
+  } else {
+    adsLog('evaluateAdArmed: not yet armed', { 
+      pageFetchCount: state.pageFetchCount, 
+      triggerPages, 
+      needMore: triggerPages - state.pageFetchCount,
+    })
+  }
+}
+
+/**
  * Start a new session: generate new ID, reset all counters/flags
  */
 export function startNewSession(): void {
   state = {
     sessionId: generateSessionId(),
     pageFetchCount: 0,
+    adsShownCount: 0,
     adArmed: false,
-    adShown: false,
   }
-  // Clear background timestamp when starting new session
+  // Clear storage when starting new session
   clearLastBackgroundAt()
+  clearSessionCounters()
   log('NEW SESSION started', { sessionId: state.sessionId })
 }
 
+// Guard against double-init in React strict mode
+let sessionInitialized = false
+
 /**
  * Initialize session on app load (cold start)
- * Always creates a new in-memory session.
+ * Restores counters from sessionStorage if available (survives page refresh).
+ * Guarded against double-init in React strict mode.
  */
 export function initSessionIfNeeded(): void {
-  // Cold start: always create new session (in-memory only)
-  startNewSession()
+  // Prevent double-init in React strict mode
+  if (sessionInitialized && state.sessionId) {
+    log('Session already initialized, skipping', { sessionId: state.sessionId })
+    return
+  }
+  
+  sessionInitialized = true
+  
+  // Generate new session ID only if we don't have one
+  if (!state.sessionId) {
+    state.sessionId = generateSessionId()
+  }
+  
+  // Restore counters from sessionStorage (survives refresh)
+  const counters = getSessionCounters()
+  state.pageFetchCount = counters.pageFetchCount
+  state.adsShownCount = counters.adsShownCount
+  state.adArmed = false
+  
+  // Re-evaluate ad armed state
+  evaluateAdArmed()
+  
+  log('Session initialized', { 
+    sessionId: state.sessionId, 
+    pageFetchCount: state.pageFetchCount,
+    adsShownCount: state.adsShownCount,
+    adArmed: state.adArmed,
+  })
 }
 
 /**
@@ -156,46 +376,92 @@ export function onAppForeground(): void {
 /**
  * Record a "next page" fetch (pagination beyond initial load)
  * Increments counter and arms ad when threshold reached.
- * Does nothing if ad already shown this session.
- * Also logs page_fetch event for analytics.
+ * Also logs page_fetch event for analytics with policy context.
  */
 export function recordPageFetch(): void {
-  // Always log the event for analytics (even if ad already shown)
+  // Build policy metadata for event
+  const policyMeta = buildPolicyEventMeta()
+  
+  // Log the event with policy context
   import('../analytics').then(({ logEvent }) => {
-    logEvent('page_fetch')
+    logEvent('page_fetch', { policy: policyMeta })
+    adPolicyEventLog('page_fetch', policyMeta)
   }).catch(() => {
     // Fail silently - analytics must never block UX
   })
 
-  // Don't count for ad triggering if ad already shown this session
-  if (state.adShown) {
-    log('Page fetch ignored for ad (ad already shown this session)')
+  const policy = getPolicy()
+  const cap = policy.adsPerSessionCap ?? FALLBACK_ADS_PER_SESSION_CAP
+
+  // Don't count for ad triggering if cap reached or ads disabled
+  if (!policy.enabled) {
+    log('Page fetch ignored for ad (ads disabled by policy)')
+    return
+  }
+
+  if (state.adsShownCount >= cap) {
+    log('Page fetch ignored for ad (session cap reached)', { adsShown: state.adsShownCount, cap })
     return
   }
   
   state.pageFetchCount++
+  saveSessionCounters()
   log('Page fetch recorded, count:', state.pageFetchCount)
   
-  // Check if we should arm the ad
-  if (!state.adArmed && state.pageFetchCount >= AD_TRIGGER_THRESHOLD) {
-    state.adArmed = true
-    log('AD ARMED at pageFetchCount:', state.pageFetchCount)
-  }
+  // Evaluate if ad should be armed
+  evaluateAdArmed()
 }
 
 /**
- * Mark ad as shown (called after ad displays)
- * Prevents further ads this session.
- * Also logs ad_shown event for analytics.
+ * Mark ad as shown (called when AdCard mounts, NOT when ad is queued)
+ * Increments adsShownCount and resets pageFetchCount for next ad cycle.
+ * Also logs ad_shown event for analytics with policy context.
+ * 
+ * IMPORTANT: This should ONLY be called from AdCard component on mount,
+ * never from ad insertion/queueing logic.
  */
 export function markAdShown(mode?: string): void {
-  state.adShown = true
-  state.adArmed = false
-  log('Ad marked as shown, no more ads this session')
+  const policy = getPolicy()
+  const cap = policy.adsPerSessionCap ?? FALLBACK_ADS_PER_SESSION_CAP
   
-  // Log ad_shown event for analytics
+  // Build policy metadata for event BEFORE incrementing counters
+  const policyMeta = buildPolicyEventMeta()
+  
+  // Capture state before change for logging
+  const countBefore = state.adsShownCount
+  
+  state.adsShownCount++
+  state.adArmed = false
+  
+  // Reset page fetch count to start counting for next ad (if under cap)
+  state.pageFetchCount = 0
+  
+  saveSessionCounters()
+  
+  const canShowMore = state.adsShownCount < cap
+  
+  adsLog('markAdShown called (from AdCard mount)', {
+    mode,
+    countBefore,
+    countAfter: state.adsShownCount,
+    cap,
+    canShowMore,
+    policy: { 
+      enabled: policy.enabled, 
+      triggerPages: policy.triggerPages, 
+      source: policy.source,
+    },
+  })
+  
+  // Log ad_shown event for analytics with policy context
   import('../analytics').then(({ logEvent }) => {
-    logEvent('ad_shown', { mode })
+    logEvent('ad_shown', { 
+      mode,
+      policy: policyMeta,
+      ads_shown_count: state.adsShownCount,
+      can_show_more: canShowMore,
+    })
+    adPolicyEventLog('ad_shown', policyMeta)
   }).catch(() => {
     // Fail silently - analytics must never block UX
   })
@@ -210,16 +476,40 @@ export function getSessionState(): Readonly<SessionState> {
 
 /**
  * Check if ad is currently armed and ready to show
+ * Respects policy.enabled flag.
  */
 export function isAdArmed(): boolean {
-  return state.adArmed && !state.adShown
+  const policy = getPolicy()
+  
+  // Never armed if disabled
+  if (!policy.enabled) {
+    return false
+  }
+  
+  // Never armed if cap reached
+  const cap = policy.adsPerSessionCap ?? FALLBACK_ADS_PER_SESSION_CAP
+  if (state.adsShownCount >= cap) {
+    return false
+  }
+  
+  return state.adArmed
 }
 
 /**
- * Check if ad has already been shown this session
+ * Check if session ad cap has been reached
+ */
+export function hasReachedAdCap(): boolean {
+  const policy = getPolicy()
+  const cap = policy.adsPerSessionCap ?? FALLBACK_ADS_PER_SESSION_CAP
+  return state.adsShownCount >= cap
+}
+
+/**
+ * Check if ad has already been shown this session (at least once)
+ * @deprecated Use hasReachedAdCap() for cap-aware check
  */
 export function hasAdShown(): boolean {
-  return state.adShown
+  return state.adsShownCount > 0
 }
 
 /**
@@ -234,4 +524,96 @@ export function getSessionId(): string {
  */
 export function getPageFetchCount(): number {
   return state.pageFetchCount
+}
+
+/**
+ * Get current ads shown count
+ */
+export function getAdsShownCount(): number {
+  return state.adsShownCount
+}
+
+/**
+ * Get current policy info (for debugging)
+ */
+export function getAdPolicyInfo(): { policy: AdPolicy; state: { pageFetchCount: number; adsShownCount: number; adArmed: boolean } } {
+  return {
+    policy: getPolicy(),
+    state: {
+      pageFetchCount: state.pageFetchCount,
+      adsShownCount: state.adsShownCount,
+      adArmed: state.adArmed,
+    },
+  }
+}
+
+/**
+ * DEV ONLY: Reset all ad-related session state and storage.
+ * Clears the following keys:
+ * 
+ * sessionStorage:
+ *   - lethe.ad_session.pageFetchCount
+ *   - lethe.ad_session.adsShownCount
+ *   - lethe.ad_policy_effective.v1:* (all cached policies)
+ *   - lethe.country_code
+ * 
+ * localStorage:
+ *   - lethe:lastBackgroundAt
+ *   - lethe.country_code_override (DEV override)
+ * 
+ * In-memory:
+ *   - pageFetchCount -> 0
+ *   - adsShownCount -> 0
+ *   - adArmed -> false
+ *   - cachedPolicy -> null
+ *   - sessionInitialized -> false (allows re-init)
+ * 
+ * Does NOT clear:
+ *   - debug_ads (preserve debug setting)
+ *   - lethe_onboarding_seen (preserve onboarding state)
+ *   - SESSION_HASH_KEY / SESSION_CREATED_KEY (analytics session)
+ */
+export function devResetAdSession(): void {
+  // Clear sessionStorage keys
+  const sessionKeysToRemove = [
+    STORAGE_KEY_PAGE_FETCH_COUNT,
+    STORAGE_KEY_ADS_SHOWN_COUNT,
+    'lethe.country_code',
+  ]
+  
+  // Also clear any cached policy keys (lethe.ad_policy_effective.v1:*)
+  for (let i = sessionStorage.length - 1; i >= 0; i--) {
+    const key = sessionStorage.key(i)
+    if (key && key.startsWith('lethe.ad_policy_effective.v1:')) {
+      sessionStorage.removeItem(key)
+    }
+  }
+  
+  sessionKeysToRemove.forEach(key => {
+    sessionStorage.removeItem(key)
+  })
+  
+  // Clear localStorage keys
+  const localKeysToRemove = [
+    STORAGE_KEY_BACKGROUND,
+    'lethe.country_code_override',
+  ]
+  
+  localKeysToRemove.forEach(key => {
+    localStorage.removeItem(key)
+  })
+  
+  // Reset in-memory state
+  state.pageFetchCount = 0
+  state.adsShownCount = 0
+  state.adArmed = false
+  state.sessionId = generateSessionId()
+  cachedPolicy = null
+  sessionInitialized = false
+  
+  console.log('[ads] DEV reset complete', {
+    clearedSessionStorage: [...sessionKeysToRemove, 'lethe.ad_policy_effective.v1:*'],
+    clearedLocalStorage: localKeysToRemove,
+    newSessionId: state.sessionId,
+  })
 }

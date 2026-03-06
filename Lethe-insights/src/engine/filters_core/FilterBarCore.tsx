@@ -187,6 +187,9 @@ const styles = {
 const TIME_RANGE_OPTIONS: { value: TimeRange; label: string }[] = [
   { value: '7d', label: 'Last 7 days' },
   { value: '30d', label: 'Last 30 days' },
+  { value: '90d', label: 'Last 90 days' },
+  { value: '180d', label: 'Last 180 days' },
+  { value: '365d', label: 'Last 365 days' },
 ];
 
 // =============================================================================

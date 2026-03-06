@@ -3,6 +3,8 @@ import { useMoodSummary } from '../hooks/useMoodSummary';
 import { useMoodPulse } from '../hooks/useMoodPulse';
 import { useMoodPulseByRegion } from '../hooks/useMoodPulseByRegion';
 import { MoodWorldMap } from '../components/mood/MoodWorldMap';
+import { InfoHint } from '../components/ui/InfoHint';
+import { moodInfo } from './mood/moodInfo';
 
 // =============================================================================
 // STYLES - AI Observer Theme
@@ -1629,6 +1631,7 @@ export function MoodPage() {
 
           <div style={styles.narrativeHeader}>
             <div style={styles.narrativeTitle}>AI Observer</div>
+            <InfoHint {...moodInfo.aiObserver} />
           </div>
           
           {/* Live Status */}
@@ -1735,16 +1738,19 @@ export function MoodPage() {
                         )}
                       </div>
                       
-                      <div style={{
-                        ...styles.narrativeScore,
-                        color: getScoreColor(observedData.balanceScore),
-                        textShadow: observedData.balanceScore > 0.05 
-                          ? '0 0 40px rgba(100, 200, 150, 0.3)' 
-                          : observedData.balanceScore < -0.05 
-                          ? '0 0 40px rgba(200, 120, 120, 0.25)' 
-                          : 'none',
-                      }}>
-                        {observedData.balanceScore >= 0 ? '+' : ''}{observedData.balanceScore.toFixed(2)}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <div style={{
+                          ...styles.narrativeScore,
+                          color: getScoreColor(observedData.balanceScore),
+                          textShadow: observedData.balanceScore > 0.05 
+                            ? '0 0 40px rgba(100, 200, 150, 0.3)' 
+                            : observedData.balanceScore < -0.05 
+                            ? '0 0 40px rgba(200, 120, 120, 0.25)' 
+                            : 'none',
+                        }}>
+                          {observedData.balanceScore >= 0 ? '+' : ''}{observedData.balanceScore.toFixed(2)}
+                        </div>
+                        <InfoHint {...moodInfo.temperatureIndex} />
                       </div>
                     </div>
                   </div>
@@ -1842,9 +1848,12 @@ export function MoodPage() {
 
         {/* RIGHT: Hero Map */}
         <div style={styles.mapPanel}>
-          <div style={styles.mapLabel}>
-            <div style={styles.mapLabelDot} />
-            Live Emotional Map
+          <div style={{ ...styles.mapLabel, right: 16, justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'inherit' }}>
+              <div style={styles.mapLabelDot} />
+              Live Emotional Map
+            </div>
+            <InfoHint {...moodInfo.liveMap} />
           </div>
           <MoodWorldMap
             regions={filteredRegionData}
@@ -1893,7 +1902,10 @@ export function MoodPage() {
         <div style={styles.card}>
           <div style={styles.cardHeader}>
             <span style={styles.cardTitle}>Stability Index</span>
-            <span style={styles.cardBadge}>{timeRange === '7d' ? '7 Days' : '30 Days'}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <InfoHint {...moodInfo.stabilityIndex} />
+              <span style={styles.cardBadge}>{timeRange === '7d' ? '7 Days' : '30 Days'}</span>
+            </div>
           </div>
           {regionLoading ? (
             <div style={styles.loadingState}>Loading...</div>

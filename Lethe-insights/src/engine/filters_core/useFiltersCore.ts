@@ -5,7 +5,7 @@ import { FiltersCoreContext } from './FiltersCoreProvider';
 // TYPES
 // =============================================================================
 
-export type TimeRange = '7d' | '30d';
+export type TimeRange = '7d' | '30d' | '90d' | '180d' | '365d';
 
 export interface FiltersCoreState {
   timeRange: TimeRange;

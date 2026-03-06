@@ -10,6 +10,7 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+.vite
 *.local
 .env
 
@@ -35,6 +36,9 @@ Thumbs.db
 *.docx
 *.pdf
 *.txt
+
+# Dev bundle
+lethe-dev-bundle.zip
 
 # Temp folders
 .temp/

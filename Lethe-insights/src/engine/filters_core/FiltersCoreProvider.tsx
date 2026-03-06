@@ -58,7 +58,7 @@ function parseUrlParams(): Partial<FiltersCoreState> {
   const result: Partial<FiltersCoreState> = {};
 
   const tr = params.get(PARAM_KEYS.timeRange);
-  if (tr === '7d' || tr === '30d') {
+  if (tr === '7d' || tr === '30d' || tr === '90d' || tr === '180d' || tr === '365d') {
     result.timeRange = tr;
   }
 

@@ -22,6 +22,9 @@ function timeRangeToDays(timeRange: TimeRange): InsightsDays {
   switch (timeRange) {
     case '7d': return 7;
     case '30d': return 30;
+    case '90d': return 90;
+    case '180d': return 180;
+    case '365d': return 365;
     default: return 7;
   }
 }
@@ -87,7 +90,8 @@ export function toLegacyFilters(coreFilters: FiltersCoreState): LegacyFiltersCom
   }
 
   // Build window label
-  const windowLabel = coreFilters.timeRange === '7d' ? 'Last 7 days' : 'Last 30 days';
+  const dayCount = timeRangeToDays(coreFilters.timeRange);
+  const windowLabel = `Last ${dayCount} days`;
 
   return {
     filters,

@@ -20,8 +20,12 @@ import {
   recordPageFetch,
   isAdArmed,
   hasAdShown,
-  markAdShown,
+  hasReachedAdCap,
+  setAdPolicy,
+  getAdPolicyInfo,
+  devResetAdSession,
 } from './state/session'
+import { useAdPolicyRuntime } from './hooks/useAdPolicyRuntime'
 import { AdCard } from './components/AdCard'
 import { Onboarding } from './components/Onboarding'
 import './App.css'
@@ -91,6 +95,72 @@ const emptyFeed: FeedState = {
   hasFetched: false,
 }
 
+// Feed item union type for rendering (confession or ad)
+type FeedItem = 
+  | { kind: 'confession'; data: Confession }
+  | { kind: 'ad'; adId: string; feedMode: string }
+
+// Injected ad tracking (for multiple ads per session)
+type InjectedAd = {
+  adId: string
+  insertIndex: number  // Index in confession array where ad should appear BEFORE
+  feedMode: string
+  insertedAtFeedLength: number  // Feed length when this ad was queued
+}
+
+// Build feed array with MULTIPLE ads injected at their specified indices
+function buildFeedWithAds(
+  confessions: Confession[],
+  injectedAds: InjectedAd[],
+  feedMode: string
+): FeedItem[] {
+  const DEBUG_ADS = import.meta.env.DEV || 
+    (typeof localStorage !== 'undefined' && localStorage.getItem('debug_ads') === '1')
+  
+  // If no ads to insert, just return confessions
+  if (injectedAds.length === 0) {
+    return confessions.map(c => ({ kind: 'confession' as const, data: c }))
+  }
+  
+  // Sort ads by insertIndex ascending
+  const sortedAds = [...injectedAds].sort((a, b) => a.insertIndex - b.insertIndex)
+  
+  const items: FeedItem[] = []
+  let adIdx = 0  // Track which ad we're on
+  
+  // Build items with ads at their correct positions
+  confessions.forEach((c, confessionIndex) => {
+    // Insert any ads that should appear BEFORE this confession
+    // Account for offset: as we insert ads, the "effective" index shifts
+    while (adIdx < sortedAds.length && sortedAds[adIdx].insertIndex <= confessionIndex) {
+      const ad = sortedAds[adIdx]
+      items.push({ kind: 'ad', adId: ad.adId, feedMode: ad.feedMode })
+      adIdx++
+    }
+    items.push({ kind: 'confession', data: c })
+  })
+  
+  // Append any remaining ads that go at the end
+  while (adIdx < sortedAds.length) {
+    const ad = sortedAds[adIdx]
+    items.push({ kind: 'ad', adId: ad.adId, feedMode: ad.feedMode })
+    adIdx++
+  }
+  
+  if (DEBUG_ADS) {
+    const adCount = items.filter(i => i.kind === 'ad').length
+    console.log('[ads] buildFeedWithAds: result', {
+      inputConfessions: confessions.length,
+      injectedAdsCount: injectedAds.length,
+      outputItems: items.length,
+      adsInOutput: adCount,
+      adPositions: sortedAds.map(a => ({ adId: a.adId.slice(0, 8), idx: a.insertIndex })),
+    })
+  }
+  
+  return items
+}
+
 function App() {
   // Write state
   const [text, setText] = useState('')
@@ -124,15 +194,32 @@ function App() {
   const [showFab, setShowFab] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  // Ad insertion state (tracks if ad has been inserted this session)
-  const [adInserted, setAdInserted] = useState(false)
-  const [adInsertIndex, setAdInsertIndex] = useState<number | null>(null)
-  const adMarkedRef = useRef(false) // Guard to call markAdShown only once
+  // Ad insertion state - tracks MULTIPLE injected ads per tab
+  const [injectedAds, setInjectedAds] = useState<Record<Tab, InjectedAd[]>>({
+    world: [],
+    near: [],
+    somewhere: [],
+  })
+  const queuedAdIds = useRef<Set<string>>(new Set()) // Prevent duplicate ad IDs
+  const lastQueuedAtRef = useRef<number>(0) // Debounce rapid queueing
 
   // Onboarding state
   const [showOnboarding, setShowOnboarding] = useState(() => {
     return !localStorage.getItem('lethe_onboarding_seen')
   })
+
+  // Ad policy (fetched from DB, cached in sessionStorage)
+  const { policy: adPolicy, loading: adPolicyLoading, countryCode: adCountryCode } = useAdPolicyRuntime()
+  
+  // Sync policy to session state when loaded
+  useEffect(() => {
+    if (!adPolicyLoading && adPolicy) {
+      setAdPolicy(adPolicy)
+      if (import.meta.env.DEV && localStorage.getItem('debug_ads') === '1') {
+        console.log('[ads] Policy loaded:', { countryCode: adCountryCode, ...adPolicy })
+      }
+    }
+  }, [adPolicy, adPolicyLoading, adCountryCode])
 
   function handleOnboardingContinue() {
     localStorage.setItem('lethe_onboarding_seen', 'true')
@@ -169,12 +256,13 @@ function App() {
       } else if (document.visibilityState === 'visible') {
         // Check if ad was previously shown before foreground
         const wasAdShown = hasAdShown()
+        const wasAtCap = hasReachedAdCap()
         onAppForeground()
-        // If session was reset (adShown became false), reset our local ad state
-        if (wasAdShown && !hasAdShown()) {
-          setAdInserted(false)
-          setAdInsertIndex(null)
-          adMarkedRef.current = false
+        // If session was reset (no longer at cap or ad count reset), reset our local ad state
+        if ((wasAdShown && !hasAdShown()) || (wasAtCap && !hasReachedAdCap())) {
+          setInjectedAds({ world: [], near: [], somewhere: [] })
+          queuedAdIds.current.clear()
+          lastQueuedAtRef.current = 0
           if (import.meta.env.DEV) {
             console.log('[ads] Ad state reset (new session)')
           }
@@ -200,21 +288,74 @@ function App() {
     logEvent('feed_view', { mode: tab })
   }, [tab, deviceLocation, somewherePlace])
 
-  // Handle ad insertion: when ad is armed and not yet inserted, insert it at the END of current feed
+  // Handle ad insertion: when ad is armed and ready to show
+  // Policy-driven: can show MULTIPLE ads up to adsPerSessionCap
+  // IMPORTANT: This only QUEUES the ad for insertion. Actual counting happens in AdCard on mount.
   useEffect(() => {
-    if (isAdArmed() && !hasAdShown() && !adInserted && !adMarkedRef.current) {
-      // Capture current feed length as stable insertion point (end of visible feed)
+    // Skip if policy not yet loaded
+    if (adPolicyLoading) return
+    
+    // Skip if ads disabled by policy
+    if (!adPolicy.enabled) return
+    
+    // Debounce: prevent rapid queueing (min 100ms between queues)
+    const now = Date.now()
+    if (now - lastQueuedAtRef.current < 100) return
+    
+    // Check if we can show an ad (armed and under cap)
+    if (isAdArmed() && !hasReachedAdCap()) {
+      // Capture current feed length as stable insertion point
       const feedLength = tab === 'world' ? worldFeed.confessions.length : placeFeed.confessions.length
       
-      adMarkedRef.current = true
-      setAdInsertIndex(feedLength) // Insert at the end of current feed
-      setAdInserted(true)
-      markAdShown(tab) // Pass current feed mode for analytics
-      if (import.meta.env.DEV) {
-        console.log('[ads] Ad inserted at index', feedLength)
+      // Calculate insert index: position relative to current feed
+      // Each new ad goes near the END of current feed (after last ~8 items or at end)
+      const currentAdsInTab = injectedAds[tab].length
+      const baseIndex = Math.max(0, feedLength - 8 + currentAdsInTab)
+      const insertIndex = Math.min(baseIndex, feedLength)
+      
+      // Generate unique ad ID for this insertion
+      const adId = `ad-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      
+      // Check if this exact adId already exists (shouldn't happen, but guard anyway)
+      if (queuedAdIds.current.has(adId)) {
+        return
+      }
+      
+      // Queue the ad
+      lastQueuedAtRef.current = now
+      queuedAdIds.current.add(adId)
+      
+      const newAd: InjectedAd = {
+        adId,
+        insertIndex,
+        feedMode: tab,
+        insertedAtFeedLength: feedLength,
+      }
+      
+      setInjectedAds(prev => ({
+        ...prev,
+        [tab]: [...prev[tab], newAd],
+      }))
+      
+      if (import.meta.env.DEV || localStorage.getItem('debug_ads') === '1') {
+        const info = getAdPolicyInfo()
+        console.log('[ads] Ad QUEUED for insertion', {
+          adId,
+          insertIndex,
+          feedLength,
+          tab,
+          totalAdsInTab: currentAdsInTab + 1,
+          state: info.state,
+          policy: {
+            cap: info.policy.adsPerSessionCap,
+            triggerPages: info.policy.triggerPages,
+            enabled: info.policy.enabled,
+            source: info.policy.source,
+          },
+        })
       }
     }
-  })
+  }, [adPolicyLoading, adPolicy.enabled, tab, worldFeed.confessions.length, placeFeed.confessions.length, injectedAds])
 
   // FAB click: scroll to top and focus textarea
   function handleFabClick() {
@@ -254,6 +395,26 @@ function App() {
         showToast('Could not share')
       }
     }
+  }
+
+  // DEV: Reset ad session state and refetch feed
+  function handleDevResetAdSession() {
+    // Clear all ad-related state
+    devResetAdSession()
+    
+    // Reset injected ads in UI
+    setInjectedAds({ world: [], near: [], somewhere: [] })
+    queuedAdIds.current.clear()
+    lastQueuedAtRef.current = 0
+    
+    // Reset feeds to trigger refetch
+    setWorldFeed(emptyFeed)
+    setPlaceFeed(emptyFeed)
+    
+    // Re-initialize session
+    initSessionIfNeeded()
+    
+    showToast('Ad session reset')
   }
 
   // Report handlers
@@ -989,56 +1150,48 @@ function App() {
       )}
 
       <ul className="confessions-list">
-        {(() => {
-          // Show ad at the captured insertion index (where user was when ad became armed)
-          const shouldShowAd = adInserted && adInsertIndex !== null
-          
-          const items: React.ReactNode[] = []
-          let adRendered = false
-          
-          currentFeed.confessions.forEach((c, index) => {
-            // Insert ad before this item if we've reached the insertion point
-            if (shouldShowAd && !adRendered && index === adInsertIndex) {
-              items.push(<li key="ad-card" className="confession-item"><AdCard /></li>)
-              adRendered = true
-            }
-            
-            items.push(
-              <li key={c.id} className="confession-item">
-                <div className={`confession-card${ENABLE_CARD_GLOW ? ' confession-card--glow' : ''}`}>
-                  <div className="confession-header">
-                    <span className="confession-text">{c.text}</span>
-                    <div className="confession-menu">
-                      <button
-                        className="confession-menu-btn"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setOpenMenuId(openMenuId === c.id ? null : c.id)
-                        }}
-                        aria-label="More options"
-                      >
-                        ···
-                      </button>
-                      {openMenuId === c.id && (
-                        <div className="confession-menu-dropdown">
-                          <button onClick={() => openReportModal(c.id)}>Report</button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <span className="confession-time">{formatTime(c.created_at)}</span>
-                </div>
+        {buildFeedWithAds(
+          currentFeed.confessions,
+          injectedAds[tab],
+          tab
+        ).map((item) => {
+          if (item.kind === 'ad') {
+            return (
+              <li key={`ad-${item.adId}`} className="confession-item">
+                <AdCard adId={item.adId} feedMode={item.feedMode} />
               </li>
             )
-          })
-          
-          // If ad wasn't rendered yet (index >= confessions length), append at end
-          if (shouldShowAd && !adRendered) {
-            items.push(<li key="ad-card" className="confession-item"><AdCard /></li>)
           }
           
-          return items
-        })()}
+          const c = item.data
+          return (
+            <li key={c.id} className="confession-item">
+              <div className={`confession-card${ENABLE_CARD_GLOW ? ' confession-card--glow' : ''}`}>
+                <div className="confession-header">
+                  <span className="confession-text">{c.text}</span>
+                  <div className="confession-menu">
+                    <button
+                      className="confession-menu-btn"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setOpenMenuId(openMenuId === c.id ? null : c.id)
+                      }}
+                      aria-label="More options"
+                    >
+                      ···
+                    </button>
+                    {openMenuId === c.id && (
+                      <div className="confession-menu-dropdown">
+                        <button onClick={() => openReportModal(c.id)}>Report</button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <span className="confession-time">{formatTime(c.created_at)}</span>
+              </div>
+            </li>
+          )
+        })}
       </ul>
 
       {currentFeed.hasMore && !currentFeed.loading && (
@@ -1131,6 +1284,33 @@ function App() {
       {/* Onboarding overlay */}
       {showOnboarding && (
         <Onboarding onComplete={handleOnboardingContinue} />
+      )}
+
+      {/* DEV: Ad session reset button (only in development) */}
+      {import.meta.env.DEV && (
+        <button
+          onClick={handleDevResetAdSession}
+          style={{
+            position: 'fixed',
+            bottom: 80,
+            right: 16,
+            padding: '8px 12px',
+            fontSize: 11,
+            fontWeight: 600,
+            background: 'rgba(255, 100, 100, 0.9)',
+            color: '#fff',
+            border: 'none',
+            borderRadius: 6,
+            cursor: 'pointer',
+            zIndex: 9999,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+            textTransform: 'uppercase',
+            letterSpacing: '0.5px',
+          }}
+          title="Clear all ad-related storage and reset session state"
+        >
+          Reset Ad Session
+        </button>
       )}
     </main>
   )

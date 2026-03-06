@@ -8,6 +8,7 @@ import { EngagementPage } from './pages/EngagementPage';
 import { MonetizationPage } from './pages/MonetizationPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { MoodPage } from './pages/MoodPage';
+import { TrendsPage } from './pages/TrendsPage';
 import { useInsightsFilters } from './contexts/InsightsContext';
 import { useInsightsActiveDay } from './hooks/useInsightsActiveDay';
 import { supabase } from './lib/supabase';
@@ -57,6 +58,8 @@ export default function App() {
         return <ReportsPage />;
       case 'mood':
         return <MoodPage />;
+      case 'trends':
+        return <TrendsPage />;
       default:
         return <OverviewPage />;
     }
@@ -64,8 +67,8 @@ export default function App() {
 
   // Determine if we should show filter bar and use grid
   // Reports and Mood pages have their own filters, so hide the global filter bar
-  const showFilterBar = activePage !== 'monetization' && activePage !== 'reports' && activePage !== 'mood';
-  const useGrid = activePage !== 'monetization' && activePage !== 'reports' && activePage !== 'mood';
+  const showFilterBar = activePage !== 'monetization' && activePage !== 'reports' && activePage !== 'mood' && activePage !== 'trends';
+  const useGrid = activePage !== 'monetization' && activePage !== 'reports' && activePage !== 'mood' && activePage !== 'trends';
 
   return (
     <>

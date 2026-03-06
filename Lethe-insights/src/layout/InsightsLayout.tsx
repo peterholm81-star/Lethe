@@ -215,7 +215,7 @@ const navItems: NavItem[] = [
   { id: 'mood', label: 'Mood', title: 'Mood Metrics', active: true, section: 'analytics' },
   { id: 'intent', label: 'Intent', title: 'Intent', active: false, section: 'analytics' },
   { id: 'reliability', label: 'Reliability', title: 'Reliability', active: false, section: 'analytics' },
-  { id: 'trends', label: 'Trends', title: 'Trends', active: false, section: 'analytics' },
+  { id: 'trends', label: 'Trends', title: 'Trends', active: true, section: 'analytics' },
   // Moderation section
   { id: 'reports', label: 'Reports', title: 'Reports Inbox', active: true, section: 'moderation' },
 ];

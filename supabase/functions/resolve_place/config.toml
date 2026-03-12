@@ -1,0 +1,12 @@
+# resolve_place — geocoding utility, no JWT required.
+#
+# This function accepts a city name and returns public coordinates via Nominatim.
+# It uses the service role key internally for place_cache reads/writes and does
+# not use auth.uid() or any caller identity for anything. Requiring a valid user
+# JWT gives zero security benefit here — the anon key is already public in the
+# frontend bundle, so any caller who can reach the Supabase project URL can call
+# this function regardless.
+#
+# verify_jwt = false tells the Supabase CLI to deploy with --no-verify-jwt so the
+# edge function gateway skips JWT verification before forwarding the request.
+verify_jwt = false

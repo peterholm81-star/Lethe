@@ -1,4 +1,4 @@
-import { supabase } from './supabase'
+import { supabase, ensureAnonSession } from './supabase'
 import type { Confession } from './supabase'
 
 // Dev-only logging
@@ -33,6 +33,10 @@ export type FeedResult = {
   confessions: Confession[]
   nextCursor: PageCursor
   hasMore: boolean
+  /** true when a real fetch failure occurred (RPC error, network error).
+   *  false for successful fetches — including legitimately empty results.
+   *  Callers must surface this separately rather than treating it as empty. */
+  error: boolean
 }
 
 export type FetchFeedParams = {
@@ -74,13 +78,13 @@ export async function fetchFeed(params: FetchFeedParams): Promise<FeedResult> {
   
   if (!supabase) {
     if (DEV) console.warn('[fetchFeed] supabase not configured')
-    return { confessions: [], nextCursor: null, hasMore: false }
+    return { confessions: [], nextCursor: null, hasMore: false, error: false }
   }
 
   // Validate near mode params
   if (mode === 'near' && (lat == null || lng == null)) {
     if (DEV) console.warn('[fetchFeed] near mode requires lat/lng')
-    return { confessions: [], nextCursor: null, hasMore: false }
+    return { confessions: [], nextCursor: null, hasMore: false, error: false }
   }
 
   // Request one extra to determine hasMore
@@ -102,7 +106,7 @@ export async function fetchFeed(params: FetchFeedParams): Promise<FeedResult> {
 
     if (error) {
       if (DEV) console.warn('[fetchFeed] RPC error:', error.message)
-      return { confessions: [], nextCursor: null, hasMore: false }
+      return { confessions: [], nextCursor: null, hasMore: false, error: true }
     }
 
     const items = data || []
@@ -118,10 +122,10 @@ export async function fetchFeed(params: FetchFeedParams): Promise<FeedResult> {
       : null
 
     if (DEV) console.log(`[fetchFeed] ${mode}: ${confessions.length} items, hasMore=${hasMore}`)
-    return { confessions, nextCursor, hasMore }
+    return { confessions, nextCursor, hasMore, error: false }
   } catch (err) {
     if (DEV) console.error('[fetchFeed] exception:', err)
-    return { confessions: [], nextCursor: null, hasMore: false }
+    return { confessions: [], nextCursor: null, hasMore: false, error: true }
   }
 }
 
@@ -147,7 +151,7 @@ export type InsertConfessionParams = {
 
 export type InsertConfessionResult = 
   | { ok: true; confession: Confession }
-  | { ok: false; error: 'EMPTY_TEXT' | 'TEXT_TOO_LONG' | 'RATE_LIMIT' | 'CONTENT_BLOCKED' | 'ERROR'; message: string }
+  | { ok: false; error: 'EMPTY_TEXT' | 'TEXT_TOO_LONG' | 'RATE_LIMIT' | 'BURST_LIMIT' | 'CONTENT_BLOCKED' | 'ERROR'; message: string }
 
 /**
  * Insert a new confession via server RPC
@@ -186,6 +190,9 @@ export async function insertConfession(params: InsertConfessionParams): Promise<
       }
       if (msg.includes('RATE_LIMIT')) {
         return { ok: false, error: 'RATE_LIMIT', message: 'Slow down — try again in a few seconds.' }
+      }
+      if (msg.includes('BURST_LIMIT')) {
+        return { ok: false, error: 'BURST_LIMIT', message: 'Take a breath — you\'ve posted a lot recently. Try again in a few minutes.' }
       }
       
       if (DEV) console.error('[insertConfession] RPC error:', msg)
@@ -296,6 +303,15 @@ export async function resolvePlace(query: string): Promise<ResolvePlaceResult> {
     if (DEV) console.error('[resolvePlace] supabase is null')
     return { ok: false, reason: 'ERROR', message: 'Not configured' }
   }
+
+  // Guarantee a valid, non-expired session immediately before the edge function
+  // call. The gateway verifies the JWT on every request and returns 401 if the
+  // token is absent or expired. Checking only on mount (useEffect) is not
+  // sufficient because: (a) the useEffect Promise is not awaited, so the first
+  // search can race against session setup; (b) a session persisted in
+  // localStorage may hold an expired access token that passes an existence check
+  // but fails gateway verification.
+  await ensureAnonSession()
 
   try {
     const { data, error } = await supabase.functions.invoke('resolve_place', {

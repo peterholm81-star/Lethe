@@ -164,7 +164,7 @@ refresh_token_reuse_interval = 10
 # Allow/disallow new user signups to your project.
 enable_signup = true
 # Allow/disallow anonymous sign-ins to your project.
-enable_anonymous_sign_ins = false
+enable_anonymous_sign_ins = true
 # Allow/disallow testing manual linking of accounts
 enable_manual_linking = false
 # Passwords shorter than this value will be rejected as weak. Minimum 6, recommended 8 or more.
@@ -349,6 +349,15 @@ enabled = false
 authorization_url_path = "/oauth/consent"
 # Allow dynamic client registration
 allow_dynamic_registration = false
+
+# resolve_place is a public geocoding utility. It accepts a city name and
+# returns public coordinates from Nominatim. It uses the service role key
+# internally for cache access and does not use auth.uid() or any caller
+# identity. JWT verification adds a fragile auth dependency with no security
+# benefit for this function — any caller with the project URL and anon key
+# (which is already public in the frontend bundle) could call it anyway.
+[functions.resolve_place]
+verify_jwt = false
 
 [edge_runtime]
 enabled = true

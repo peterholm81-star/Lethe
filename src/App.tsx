@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { supabase } from './supabase'
+import { supabase, ensureAnonSession } from './supabase'
 import type { Confession } from './supabase'
 import {
   fetchFeed,
@@ -52,6 +52,23 @@ const ENABLE_CARD_GLOW = false // Toggle subtle glow effect on confession cards
 // Near me auto-expand radius settings
 const NEAR_ME_RADII = [100, 250, 500, 1000, 2000] // meters, in order
 const MIN_RESULTS = 10 // minimum posts to consider "enough"
+
+// Somewhere feed radius — must match loadPlace's default radiusM
+const SOMEWHERE_FEED_RADIUS_M = 10000
+
+// Haversine distance between two lat/lng points in meters.
+// Used to check whether the user's real location is within a Somewhere place
+// before optimistically prepending a new confession into that feed.
+function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000
+  const toRad = (d: number) => (d * Math.PI) / 180
+  const dLat = toRad(lat2 - lat1)
+  const dLng = toRad(lng2 - lng1)
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
 const MAX_ATTEMPTS = 3 // max radii to try before giving up
 
 // Format radius for display
@@ -79,7 +96,8 @@ type FeedState = {
   cursor: PageCursor
   hasMore: boolean
   loading: boolean
-  hasFetched: boolean // true after first fetch attempt completes
+  hasFetched: boolean  // true after first fetch attempt completes
+  fetchError: boolean  // true when the fetch itself failed (not an empty result)
 }
 
 const emptyFeed: FeedState = {
@@ -88,6 +106,7 @@ const emptyFeed: FeedState = {
   hasMore: false,
   loading: false,
   hasFetched: false,
+  fetchError: false,
 }
 
 function App() {
@@ -155,9 +174,14 @@ function App() {
     return () => window.removeEventListener('scroll', handleScroll)
   }, [])
 
-  // Initialize session manager on mount
+  // Initialize session manager and ensure anonymous auth session on mount.
+  // ensureAnonSession() guarantees the Supabase client has a valid user-level
+  // JWT before any edge function call (resolve_place) is made. Without it,
+  // functions.invoke sends only the raw anon key as a Bearer token, which the
+  // edge function gateway rejects with 401.
   useEffect(() => {
     initSessionIfNeeded()
+    ensureAnonSession()
   }, [])
 
   // Handle app visibility changes for session management
@@ -343,6 +367,7 @@ function App() {
       hasMore: result.hasMore,
       loading: false,
       hasFetched: true,
+      fetchError: result.error,
     }))
   }, [worldFeed.cursor])
 
@@ -385,6 +410,7 @@ function App() {
       hasMore: result.hasMore,
       loading: false,
       hasFetched: true,
+      fetchError: result.error,
     }))
   }, [placeFeed.cursor])
 
@@ -419,6 +445,7 @@ function App() {
         hasMore: result.hasMore,
         loading: false,
         hasFetched: true,
+        fetchError: result.error,
       }))
       return
     }
@@ -445,6 +472,20 @@ function App() {
         cursor: null,
       })
 
+      // Stop expanding on a real fetch error — further radii will also fail.
+      if (result.error) {
+        if (DEV) console.warn('[nearMe] fetch error at radius:', radius)
+        setPlaceFeed({
+          confessions: [],
+          cursor: null,
+          hasMore: false,
+          loading: false,
+          hasFetched: true,
+          fetchError: true,
+        })
+        return
+      }
+
       if (result.confessions.length >= MIN_RESULTS || radius === NEAR_ME_RADII[NEAR_ME_RADII.length - 1]) {
         if (DEV) console.log('[nearMe] found', result.confessions.length, 'posts at radius:', radius)
         setNearMeRadius(radius)
@@ -454,6 +495,7 @@ function App() {
           hasMore: result.hasMore,
           loading: false,
           hasFetched: true,
+          fetchError: false,
         })
         return
       }
@@ -477,6 +519,7 @@ function App() {
       hasMore: result.hasMore,
       loading: false,
       hasFetched: true,
+      fetchError: result.error,
     })
   }, [placeFeed.cursor, nearMeRadius])
 
@@ -581,16 +624,24 @@ function App() {
         loadPlace(place, true)
         if (DEV) console.log('[somewhere] place set:', place.name)
       } else if (result.reason === 'NOT_FOUND') {
-        // NOT_FOUND: fallback to Near me
-        if (DEV) console.log('[somewhere] NOT_FOUND, falling back to Near me')
+        // NOT_FOUND: clear stale place + feed, then fall back to Near me.
+        // Clearing here means if the user returns to Somewhere they see a clean state.
+        if (DEV) console.log('[somewhere] NOT_FOUND, clearing stale state and falling back to Near me')
+        setSomewherePlace(null)
+        setPlaceFeed(emptyFeed)
         fallbackToNearMe()
       } else {
-        // ERROR: show generic error, do NOT fallback
+        // ERROR: clear stale place + feed so old results don't remain visible beneath the error.
         if (DEV) console.error('[somewhere] ERROR:', result.message)
+        setSomewherePlace(null)
+        setPlaceFeed(emptyFeed)
         setError('Could not resolve that place right now.')
       }
     } catch (err) {
+      // Unexpected failure: same cleanup — never leave a stale feed visible.
       if (DEV) console.error('[somewhere] exception:', err)
+      setSomewherePlace(null)
+      setPlaceFeed(emptyFeed)
       setError('Failed to look up place')
     } finally {
       setResolvingPlace(false)
@@ -731,7 +782,7 @@ function App() {
       const reasonBucket = 
         result.error === 'CONTENT_BLOCKED' || result.error === 'EMPTY_TEXT' || result.error === 'TEXT_TOO_LONG'
           ? 'validation'
-          : result.error === 'RATE_LIMIT'
+          : result.error === 'RATE_LIMIT' || result.error === 'BURST_LIMIT'
             ? 'rate_limit'
             : 'network'
       logEvent('post_reject', { mode: tab, reason_bucket: reasonBucket })
@@ -744,18 +795,50 @@ function App() {
     setText('')
     setSubmitting(false)
 
-    // Prepend new confession to current feed for instant feedback
+    // Optimistic prepend: "Look anywhere. Speak where you stand."
+    //
+    // Rule 1 — World: always update. World is the global feed; every confession
+    //           appears there regardless of which tab the user posted from.
+    //
+    // Rule 2 — World + Near me: whenever a real GPS location is known the
+    //           confession was stored with those coords and genuinely belongs in
+    //           the Near Me feed. Prepend to placeFeed from ANY non-Somewhere tab
+    //           so a confession posted while viewing World appears in Near Me
+    //           immediately without waiting for a server reload.
+    //
+    // Rule 3 — Somewhere: mutually exclusive with Rule 2. Only prepend if the
+    //           user's real GPS location is actually within the searched place's
+    //           radius. A user browsing Oslo from Berlin must NOT see their
+    //           confession appear in the Oslo feed.
+    //
+    // The if/else ensures placeFeed is never updated twice in the same submit.
     const newConfession = result.confession
-    if (tab === 'world') {
-      setWorldFeed(prev => ({
-        ...prev,
-        confessions: [newConfession, ...prev.confessions],
-      }))
-    } else if (tab === 'near' || tab === 'somewhere') {
-      setPlaceFeed(prev => ({
-        ...prev,
-        confessions: [newConfession, ...prev.confessions],
-      }))
+
+    setWorldFeed(prev => ({
+      ...prev,
+      confessions: [newConfession, ...prev.confessions],
+    }))
+
+    if (tab === 'somewhere') {
+      // Rule 3: Somewhere — containment check required
+      if (
+        somewherePlace &&
+        deviceLocation &&
+        haversineMeters(deviceLocation.lat, deviceLocation.lng, somewherePlace.lat, somewherePlace.lng) <= SOMEWHERE_FEED_RADIUS_M
+      ) {
+        setPlaceFeed(prev => ({
+          ...prev,
+          confessions: [newConfession, ...prev.confessions],
+        }))
+      }
+    } else {
+      // Rule 2: World or Near Me — prepend whenever real GPS location is known
+      if (deviceLocation) {
+        setPlaceFeed(prev => ({
+          ...prev,
+          confessions: [newConfession, ...prev.confessions],
+        }))
+      }
     }
   }
 
@@ -774,8 +857,18 @@ function App() {
     (tab === 'near' && deviceLocation)
   )
 
-  // Current feed based on tab
-  const currentFeed = tab === 'world' ? worldFeed : placeFeed
+  // Current feed based on tab.
+  // For Somewhere, only expose placeFeed once a place has been successfully
+  // resolved (somewherePlace is set). Before that, return emptyFeed so the
+  // confessions list, load-more button, and loading state are all suppressed.
+  // placeFeed may contain Near Me data from a prior navigation — it must never
+  // bleed through into the Somewhere view before the user has searched.
+  const currentFeed =
+    tab === 'world'
+      ? worldFeed
+      : tab === 'somewhere' && !somewherePlace
+        ? emptyFeed
+        : placeFeed
 
   // Derive listening label based on mode (NEVER cross-contaminate coords)
   let listeningLabel: string | null = null
@@ -905,8 +998,16 @@ function App() {
         </div>
       )}
 
-      {/* Empty feed state - only show after fetch attempt completes */}
-      {currentFeed.confessions.length === 0 && !currentFeed.loading && currentFeed.hasFetched && (
+      {/* Pre-search Somewhere state: no place resolved yet, not currently resolving */}
+      {tab === 'somewhere' && !somewherePlace && !resolvingPlace && (
+        <div className="empty-feed">
+          <p className="empty-feed-primary">Choose a place. Listen in.</p>
+        </div>
+      )}
+
+      {/* Empty feed state — only show after a successful fetch that returned zero results.
+          fetchError must be false: a failed fetch is not an empty feed. */}
+      {currentFeed.confessions.length === 0 && !currentFeed.loading && currentFeed.hasFetched && !currentFeed.fetchError && (
         (tab === 'world') ||
         (tab === 'near' && deviceLocation) ||
         (tab === 'somewhere' && somewherePlace)
@@ -930,6 +1031,29 @@ function App() {
               <p className="empty-feed-secondary">Try somewhere else.</p>
             </>
           )}
+        </div>
+      )}
+
+      {/* Feed error state — shown when the fetch itself failed (network / server error).
+          Only appears for an initial load failure (confessions.length === 0).
+          A pagination failure preserves existing confessions and just stops the feed. */}
+      {currentFeed.fetchError && currentFeed.confessions.length === 0 && !currentFeed.loading && currentFeed.hasFetched && (
+        (tab === 'world') ||
+        (tab === 'near' && deviceLocation) ||
+        (tab === 'somewhere' && somewherePlace)
+      ) && (
+        <div className="empty-feed">
+          <p className="empty-feed-primary">Couldn't load right now.</p>
+          <button
+            className="feed-retry-btn"
+            onClick={() => {
+              if (tab === 'world') loadWorld(true)
+              else if (tab === 'near' && deviceLocation) loadNearMe(deviceLocation.lat, deviceLocation.lng, true)
+              else if (tab === 'somewhere' && somewherePlace) loadPlace(somewherePlace, true)
+            }}
+          >
+            Try again
+          </button>
         </div>
       )}
 

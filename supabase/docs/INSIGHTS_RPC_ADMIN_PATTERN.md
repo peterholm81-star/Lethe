@@ -118,9 +118,37 @@ For each future Insights RPC migration:
 8. Verify anon, authenticated non-admin, and authenticated admin behavior.
 9. Keep local demo shims separate from production migrations.
 
+## Write / Action RPC Pattern
+
+Write and action RPCs differ from read-only aggregates in one important way:
+authenticated non-admins must receive an explicit permission error, not a silent
+empty result. A silent no-op would mask a misconfiguration and give callers false
+confidence that the action succeeded.
+
+```sql
+IF NOT public.is_insights_admin() THEN
+  RAISE EXCEPTION 'permission denied: admin access required'
+    USING ERRCODE = 'insufficient_privilege';
+END IF;
+```
+
+The Supabase client surfaces this as a non-null `error` on the RPC call. Frontend
+hooks that already check `if (error)` will handle it correctly without any
+frontend changes.
+
+Write RPCs also use `VOLATILE` (the PostgreSQL default for plpgsql functions that
+perform writes) rather than `STABLE`.
+
+No runtime shim restoration is needed after hardening write RPCs. Write actions
+are triggered only by explicit user clicks, not by passive dashboard data loading.
+The dashboard renders using read RPCs; write actions failing loudly for
+non-admin anonymous local dev sessions is the correct behavior.
+
 ## Migration Status
 
 Hardened so far:
+
+**Read-only aggregate RPCs** (return empty set for non-admins):
 
 - `public.is_insights_admin()` in `019_insights_admin_boundary.sql`
 - `public.get_insights_event_log_summary_example()` in
@@ -144,24 +172,33 @@ Hardened so far:
 - `public.rpc_get_mood_pulse_by_region(...)` in
   `029_harden_mood_pulse_by_region_rpc.sql`
 
-All RPCs listed above are real production-relevant Insights read-only aggregates
-converted to the admin model. They preserve their existing frontend
-names/signatures/return columns, deny anon by grant, and return an empty set for
-authenticated non-admin users.
+**Write / action RPCs** (raise `insufficient_privilege` for non-admins):
+
+- `public.set_confession_hidden(...)` in
+  `030_harden_set_confession_hidden.sql`
 
 Still ungated:
 
-- remaining overview aggregate RPCs
-- remaining geo and revenue read-only aggregates
-- remaining mood and trends read-only aggregates
-- reports inbox and moderation read RPCs
-- moderation write/action RPCs
-- monetization policy write/action paths
+- `set_report_handled(...)` — critical write, marks reports as handled
+- `set_reports_handled_for_confession(...)` — critical write, bulk report close
+- `log_moderation_action(...)` — critical write, audit log; also requires body
+  rewrite to remove hardcoded `is_dev_seed = true`
+- reports read RPCs that return raw confession text (`get_reports_inbox`,
+  `get_reports_groups`)
+- other reports read RPCs (`get_reports_pending_v1`, `get_reports_escalated_v1`,
+  `get_reports_overview`, `get_reports_overview_v2`, `get_reports_map_v2`, etc.)
+- moderation read aggregates (`get_moderation_actions_v1`)
+- trends and seasonality read aggregates (`get_trends_comparison_v1`,
+  `get_trends_trendline_v1`, `get_year_wheel_v1`, `get_emotion_fingerprint_v1`,
+  `get_trends_movers_v1`)
+- remaining analytics reads (`get_sessions_by_country_range`,
+  `get_pulse_metrics`, `get_latest_metrics_day`)
+- filter helpers (`get_insights_region_options`, `get_insights_country_options`,
+  `get_insights_city_options`)
 
 Recommended next category:
 
-Convert another read-only aggregate analytics RPC before moving to reports,
-moderation, or monetization. Good next candidates are trend read-only aggregates
-such as `get_trends_comparison_v1`, `get_trends_trendline_v1`, or
-`get_trends_movers_v1`, because they avoid admin write paths while expanding
-coverage to the Trends page.
+Harden the remaining critical write RPCs first:
+`set_report_handled`, `set_reports_handled_for_confession`, and
+`log_moderation_action` (the last requires a body rewrite to remove the
+`is_dev_seed = true` hardcoding before it can go to production safely).

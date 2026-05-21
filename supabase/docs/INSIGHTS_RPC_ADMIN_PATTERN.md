@@ -117,3 +117,36 @@ For each future Insights RPC migration:
 7. Grant execution only to `authenticated`.
 8. Verify anon, authenticated non-admin, and authenticated admin behavior.
 9. Keep local demo shims separate from production migrations.
+
+## Migration Status
+
+Hardened so far:
+
+- `public.is_insights_admin()` in `019_insights_admin_boundary.sql`
+- `public.get_insights_event_log_summary_example()` in
+  `020_insights_rpc_admin_pattern_example.sql`
+- `public.get_change_over_time_range(...)` in
+  `021_harden_change_over_time_rpc.sql`
+
+`get_change_over_time_range` is the first real production-relevant Insights RPC
+converted to the admin model. It is read-only aggregate analytics, preserves the
+existing frontend name/signature/return columns, denies anon by grant, and
+returns an empty set for authenticated non-admin users.
+
+Still ungated:
+
+- overview and pulse aggregate RPCs
+- engagement summary RPCs
+- readers/writers and friction aggregate RPCs
+- geo and revenue read-only aggregates
+- mood and trends read-only aggregates
+- reports inbox and moderation read RPCs
+- moderation write/action RPCs
+- monetization policy write/action paths
+
+Recommended next category:
+
+Convert another read-only aggregate analytics RPC before moving to reports,
+moderation, or monetization. Good next candidates are `get_engagement_flow_range`
+or `get_pulse_metrics_range`, because they are dashboard aggregates and do not
+perform writes.

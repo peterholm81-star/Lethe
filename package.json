@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "supabase:dev:reset": "npx supabase db reset",
+    "supabase:dev:seed-large": "powershell -ExecutionPolicy Bypass -File supabase/dev/apply-large-dev-seed.ps1"
   },
   "dependencies": {
     "@capacitor/android": "^8.0.2",

@@ -183,9 +183,13 @@ Hardened so far:
 - `public.log_moderation_action(...)` in
   `033_harden_log_moderation_action.sql`
 
+**Read RPCs returning raw moderation content** (return empty set for non-admins):
+
+- `public.get_reports_inbox(...)` in
+  `034_harden_get_reports_inbox.sql`
+
 Still ungated:
-- reports read RPCs that return raw confession text (`get_reports_inbox`,
-  `get_reports_groups`)
+- reports read RPCs that return raw confession text (`get_reports_groups`)
 - other reports read RPCs (`get_reports_pending_v1`, `get_reports_escalated_v1`,
   `get_reports_overview`, `get_reports_overview_v2`, `get_reports_map_v2`, etc.)
 - moderation read aggregates (`get_moderation_actions_v1`)
@@ -203,9 +207,5 @@ Phase 1 (critical write RPCs) is complete. All four write RPCs are now
 admin-gated with explicit `insufficient_privilege` errors for non-admins and
 no dev-seed hardcodings in production bodies.
 
-Recommended next phase: harden the HIGH-risk reports read RPCs that return raw
-confession text. Priority order:
-1. `get_reports_inbox` — returns `c.text` (raw confession) and `r.details`
-2. `get_reports_groups` — returns `max(text)` (raw confession per group)
-3. `get_reports_pending_v1`, `get_reports_escalated_v1`
-4. Remaining reports aggregates (overview, hotspots, map, outcomes, SLA)
+Recommended next: `get_reports_groups` (also returns raw confession text),
+then remaining reports read aggregates.

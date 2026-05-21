@@ -180,10 +180,10 @@ Hardened so far:
   `031_harden_set_report_handled.sql`
 - `public.set_reports_handled_for_confession(...)` in
   `032_harden_set_reports_handled_for_confession.sql`
+- `public.log_moderation_action(...)` in
+  `033_harden_log_moderation_action.sql`
 
 Still ungated:
-- `log_moderation_action(...)` — critical write, audit log; also requires body
-  rewrite to remove hardcoded `is_dev_seed = true`
 - reports read RPCs that return raw confession text (`get_reports_inbox`,
   `get_reports_groups`)
 - other reports read RPCs (`get_reports_pending_v1`, `get_reports_escalated_v1`,
@@ -199,7 +199,13 @@ Still ungated:
 
 Recommended next category:
 
-Harden the remaining critical write RPCs first:
-`set_report_handled`, `set_reports_handled_for_confession`, and
-`log_moderation_action` (the last requires a body rewrite to remove the
-`is_dev_seed = true` hardcoding before it can go to production safely).
+Phase 1 (critical write RPCs) is complete. All four write RPCs are now
+admin-gated with explicit `insufficient_privilege` errors for non-admins and
+no dev-seed hardcodings in production bodies.
+
+Recommended next phase: harden the HIGH-risk reports read RPCs that return raw
+confession text. Priority order:
+1. `get_reports_inbox` — returns `c.text` (raw confession) and `r.details`
+2. `get_reports_groups` — returns `max(text)` (raw confession per group)
+3. `get_reports_pending_v1`, `get_reports_escalated_v1`
+4. Remaining reports aggregates (overview, hotspots, map, outcomes, SLA)

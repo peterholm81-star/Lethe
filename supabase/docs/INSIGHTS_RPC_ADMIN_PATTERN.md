@@ -178,10 +178,10 @@ Hardened so far:
   `030_harden_set_confession_hidden.sql`
 - `public.set_report_handled(...)` in
   `031_harden_set_report_handled.sql`
+- `public.set_reports_handled_for_confession(...)` in
+  `032_harden_set_reports_handled_for_confession.sql`
 
 Still ungated:
-
-- `set_reports_handled_for_confession(...)` — critical write, bulk report close
 - `log_moderation_action(...)` — critical write, audit log; also requires body
   rewrite to remove hardcoded `is_dev_seed = true`
 - reports read RPCs that return raw confession text (`get_reports_inbox`,

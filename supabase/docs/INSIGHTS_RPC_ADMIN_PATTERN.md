@@ -189,9 +189,11 @@ Hardened so far:
   `034_harden_get_reports_inbox.sql`
 - `public.get_reports_groups(...)` in
   `035_harden_get_reports_groups.sql`
+- `public.get_reports_pending_v1(...)` in
+  `036_harden_get_reports_pending_v1.sql`
 
 Still ungated:
-- other reports read RPCs (`get_reports_pending_v1`, `get_reports_escalated_v1`,
+- other reports read RPCs (`get_reports_escalated_v1`,
   `get_reports_overview`, `get_reports_overview_v2`, `get_reports_map_v2`, etc.)
 - moderation read aggregates (`get_moderation_actions_v1`)
 - trends and seasonality read aggregates (`get_trends_comparison_v1`,
@@ -208,6 +210,6 @@ Phase 1 (critical write RPCs) is complete. All four write RPCs are now
 admin-gated with explicit `insufficient_privilege` errors for non-admins and
 no dev-seed hardcodings in production bodies.
 
-Recommended next: remaining HIGH-risk reports read RPCs —
-`get_reports_pending_v1`, `get_reports_escalated_v1`, then reports aggregate
-summaries (`get_reports_overview`, `get_reports_overview_v2`, `get_moderation_actions_v1`, etc.).
+Recommended next: `get_reports_escalated_v1`, then reports aggregate
+summaries (`get_reports_overview`, `get_reports_overview_v2`,
+`get_moderation_actions_v1`, etc.).

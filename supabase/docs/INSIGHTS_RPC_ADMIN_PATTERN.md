@@ -131,17 +131,20 @@ Hardened so far:
   `022_harden_engagement_flow_rpc.sql`
 - `public.get_pulse_metrics_range(...)` in
   `023_harden_pulse_metrics_rpc.sql`
+- `public.get_readers_writers_range(...)` in
+  `024_harden_readers_writers_rpc.sql`
 
 `get_change_over_time_range`, `get_engagement_flow_range`, and
-`get_pulse_metrics_range` are the first real production-relevant Insights RPCs
-converted to the admin model. They are read-only aggregate analytics, preserve
-their existing frontend names/signatures/return columns, deny anon by grant, and
-return an empty set for authenticated non-admin users.
+`get_pulse_metrics_range`, plus `get_readers_writers_range`, are the first real
+production-relevant Insights RPCs converted to the admin model. They are
+read-only aggregate analytics, preserve their existing frontend
+names/signatures/return columns, deny anon by grant, and return an empty set for
+authenticated non-admin users.
 
 Still ungated:
 
 - remaining overview aggregate RPCs
-- readers/writers and friction aggregate RPCs
+- friction aggregate RPCs
 - geo and revenue read-only aggregates
 - mood and trends read-only aggregates
 - reports inbox and moderation read RPCs
@@ -151,6 +154,5 @@ Still ungated:
 Recommended next category:
 
 Convert another read-only aggregate analytics RPC before moving to reports,
-moderation, or monetization. Good next candidates are
-`get_readers_writers_range` or `get_friction_range`, because they are dashboard
-aggregates and do not perform writes.
+moderation, or monetization. The best next candidate is `get_friction_range`,
+because it is a dashboard aggregate and does not perform writes.

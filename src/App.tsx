@@ -28,6 +28,34 @@ import './App.css'
 // Dev-only logging
 const DEV = import.meta.env.DEV
 
+// DEV-only geolocation override.
+// Set to null (or remove) to use real browser location.
+// Has zero effect in production builds (import.meta.env.DEV is false → dead code).
+const DEV_GEO_OVERRIDE = DEV
+  ? { lat: 63.5437, lng: 8.4922 } // Melandsjø seed cluster
+  : null
+
+// Thin wrapper around getCurrentPosition.
+// In development with DEV_GEO_OVERRIDE set, immediately resolves with fixed
+// coordinates so Near Me can be tested against the seeded Melandsjø cluster.
+// In production the wrapper is transparent — it delegates directly to the browser API.
+function requestGeolocation(
+  onSuccess: (lat: number, lng: number) => void,
+  onError: (err: GeolocationPositionError) => void,
+  options: PositionOptions
+) {
+  if (DEV_GEO_OVERRIDE) {
+    console.log('[geo] DEV override active — using fixed coords', DEV_GEO_OVERRIDE)
+    onSuccess(DEV_GEO_OVERRIDE.lat, DEV_GEO_OVERRIDE.lng)
+    return
+  }
+  navigator.geolocation.getCurrentPosition(
+    (pos) => onSuccess(pos.coords.latitude, pos.coords.longitude),
+    onError,
+    options
+  )
+}
+
 // Share icon (arrow up from box) as inline SVG component
 function ShareIcon() {
   return (
@@ -234,7 +262,10 @@ function App() {
         console.log('[ads] Ad inserted at index', feedLength)
       }
     }
-  })
+  // isAdArmed/hasAdShown/markAdShown read module-level state and are stable references.
+  // adMarkedRef is a ref and intentionally excluded.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adInserted, tab, worldFeed.confessions.length, placeFeed.confessions.length])
 
   // FAB click: scroll to top and focus textarea
   function handleFabClick() {
@@ -420,7 +451,13 @@ function App() {
   const loadNearMe = useCallback(async (lat: number, lng: number, reset: boolean) => {
     if (DEV) console.log('[location] fetching near feed', { deviceLocation, somewherePlace, usedLatLng: { lat, lng } })
     if (DEV) console.log('[nearMe] load', reset ? '(reset, auto-expand)' : '(more)')
-    setPlaceFeed((prev) => ({ ...prev, loading: true }))
+    // On reset, clear existing confessions immediately so stale Somewhere results
+    // are never visible in the Near Me tab while the new fetch is in progress.
+    if (reset) {
+      setPlaceFeed({ ...emptyFeed, loading: true })
+    } else {
+      setPlaceFeed((prev) => ({ ...prev, loading: true }))
+    }
 
     // For pagination, use stored radius
     if (!reset) {
@@ -554,10 +591,8 @@ function App() {
     setGeoStatus('requesting')
     setGeoError(null)
 
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const lat = pos.coords.latitude
-        const lng = pos.coords.longitude
+    requestGeolocation(
+      (lat, lng) => {
         if (DEV) console.log('[near] success:', lat, lng)
 
         // Store device location (NEVER overwritten by Somewhere)
@@ -683,10 +718,8 @@ function App() {
     setGeoError(null)
     setTab('near')
 
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const lat = pos.coords.latitude
-        const lng = pos.coords.longitude
+    requestGeolocation(
+      (lat, lng) => {
         if (DEV) console.log('[fallback] location success:', lat, lng)
 
         // Store device location (NEVER overwritten by Somewhere)
@@ -719,6 +752,7 @@ function App() {
   function handlePickPlace(place: CachedPlace) {
     if (DEV) console.log('[somewhere] picked:', place.name)
     const resolved: ResolvedPlace = { query: place.name, name: place.name, lat: place.lat, lng: place.lng }
+    setSomewhereQuery(place.name)
     setSomewherePlace(resolved)
     setCachedPlace(resolved)
     if (DEV) console.log('[location] mode somewhere (picked)', { deviceLocation, somewherePlace: resolved, usedLatLng: { lat: resolved.lat, lng: resolved.lng } })
@@ -883,7 +917,7 @@ function App() {
     <main>
       {/* Sticky topbar */}
       <header className="topbar">
-        <span className="topbar-brand">Confess</span>
+        <span className="topbar-brand">Lethe</span>
         <button
           className="topbar-share"
           onClick={handleShare}

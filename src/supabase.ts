@@ -54,8 +54,8 @@ export async function ensureAnonSession(): Promise<void> {
 export type Confession = {
   id: string
   text: string
-  lat: number | null
-  lng: number | null
   created_at: string
   expires_at: string
+  // lat/lng intentionally omitted: coordinates are stored in the DB and used
+  // server-side for Near Me queries but are never returned to clients.
 }

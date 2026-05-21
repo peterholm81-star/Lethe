@@ -215,8 +215,6 @@ export async function insertConfession(params: InsertConfessionParams): Promise<
         text: row.text,
         created_at: row.created_at,
         expires_at: row.expires_at,
-        lat: row.lat,
-        lng: row.lng,
       }
     }
   } catch (err) {

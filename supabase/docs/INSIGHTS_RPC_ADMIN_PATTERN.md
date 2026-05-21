@@ -176,10 +176,11 @@ Hardened so far:
 
 - `public.set_confession_hidden(...)` in
   `030_harden_set_confession_hidden.sql`
+- `public.set_report_handled(...)` in
+  `031_harden_set_report_handled.sql`
 
 Still ungated:
 
-- `set_report_handled(...)` — critical write, marks reports as handled
 - `set_reports_handled_for_confession(...)` — critical write, bulk report close
 - `log_moderation_action(...)` — critical write, audit log; also requires body
   rewrite to remove hardcoded `is_dev_seed = true`

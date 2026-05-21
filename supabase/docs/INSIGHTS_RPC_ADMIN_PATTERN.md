@@ -139,14 +139,17 @@ Hardened so far:
   `026_harden_revenue_by_country_rpc.sql`
 - `public.rpc_get_mood_summary(...)` in
   `027_harden_mood_summary_rpc.sql`
+- `public.rpc_get_mood_pulse(...)` in
+  `028_harden_mood_pulse_rpc.sql`
 
 `get_change_over_time_range`, `get_engagement_flow_range`, and
 `get_pulse_metrics_range`, plus `get_readers_writers_range` and
 `get_friction_range`, plus `get_revenue_by_country_range` and
-`rpc_get_mood_summary`, are the first real production-relevant Insights RPCs
-converted to the admin model. They are read-only aggregate analytics, preserve
-their existing frontend names/signatures/return columns, deny anon by grant, and
-return an empty set for authenticated non-admin users.
+`rpc_get_mood_summary` and `rpc_get_mood_pulse`, are the first real
+production-relevant Insights RPCs converted to the admin model. They are
+read-only aggregate analytics, preserve their existing frontend
+names/signatures/return columns, deny anon by grant, and return an empty set for
+authenticated non-admin users.
 
 Still ungated:
 
@@ -161,6 +164,6 @@ Recommended next category:
 
 Convert another read-only aggregate analytics RPC before moving to reports,
 moderation, or monetization. Good next candidates are mood/trends read-only
-aggregates such as `rpc_get_mood_pulse`, `rpc_get_mood_pulse_by_region`, or a
-trend summary RPC, because they still avoid admin write paths while expanding
-coverage beyond the core engagement metrics.
+aggregates such as `rpc_get_mood_pulse_by_region` or a trend summary RPC,
+because they still avoid admin write paths while expanding coverage beyond the
+core engagement metrics.

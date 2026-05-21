@@ -1368,7 +1368,579 @@ AS $$
   LIMIT 20;
 $$;
 
+-- --------------------------------------------------------------------------
+-- 8. Compatibility shims for current Lethe Insights console-clean local dev
+-- --------------------------------------------------------------------------
+
+ALTER TABLE public.confessions
+  ADD COLUMN IF NOT EXISTS intent TEXT;
+
+UPDATE public.confessions
+SET intent = CASE emotion_bucket
+  WHEN 'lonely' THEN 'connection'
+  WHEN 'anxious' THEN 'relief'
+  WHEN 'sad' THEN 'regret'
+  WHEN 'tired' THEN 'rest'
+  WHEN 'hopeful' THEN 'change'
+  WHEN 'calm' THEN 'reflection'
+  WHEN 'grateful' THEN 'gratitude'
+  ELSE 'release'
+END
+WHERE is_dev_seed = true
+  AND dev_seed_batch = 'large-global-v1';
+
+DROP POLICY IF EXISTS "dev_seed_read_confession_intents" ON public.confessions;
+CREATE POLICY "dev_seed_read_confession_intents"
+  ON public.confessions
+  FOR SELECT
+  TO anon, authenticated
+  USING (is_dev_seed = true);
+
+CREATE TABLE IF NOT EXISTS public.ad_policy_country (
+  country_code TEXT PRIMARY KEY,
+  ads_per_session_cap NUMERIC NOT NULL DEFAULT 1,
+  trigger_pages INTEGER NOT NULL DEFAULT 4,
+  enabled BOOLEAN NOT NULL DEFAULT true,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  is_dev_seed BOOLEAN NOT NULL DEFAULT true,
+  dev_seed_batch TEXT DEFAULT 'large-global-v1'
+);
+
+INSERT INTO public.ad_policy_country (
+  country_code, ads_per_session_cap, trigger_pages, enabled, is_dev_seed, dev_seed_batch
+)
+SELECT country_code, ads_per_session_cap, 4, true, true, 'large-global-v1'
+FROM public.ad_policy_effective
+WHERE is_dev_seed = true
+ON CONFLICT (country_code) DO UPDATE SET
+  ads_per_session_cap = EXCLUDED.ads_per_session_cap,
+  updated_at = now(),
+  is_dev_seed = true,
+  dev_seed_batch = 'large-global-v1';
+
+ALTER TABLE public.ad_policy_country ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "dev_seed_read_ad_policy_country" ON public.ad_policy_country;
+DROP POLICY IF EXISTS "dev_seed_write_ad_policy_country" ON public.ad_policy_country;
+CREATE POLICY "dev_seed_read_ad_policy_country"
+  ON public.ad_policy_country
+  FOR SELECT
+  TO anon, authenticated
+  USING (is_dev_seed = true);
+CREATE POLICY "dev_seed_write_ad_policy_country"
+  ON public.ad_policy_country
+  FOR ALL
+  TO anon, authenticated
+  USING (is_dev_seed = true)
+  WITH CHECK (is_dev_seed = true);
+
+CREATE OR REPLACE VIEW public.country_optimization_v1 AS
+WITH engagement AS (
+  SELECT
+    country_code,
+    count(DISTINCT session_hash) FILTER (WHERE event_name = 'session_start') AS sessions_30d,
+    count(*) FILTER (WHERE event_name = 'ad_shown') AS total_ads_30d,
+    count(DISTINCT session_hash) FILTER (WHERE event_name = 'continue_after_ad') AS continue_sessions,
+    count(DISTINCT session_hash) FILTER (WHERE event_name = 'drop_after_ad') AS drop_sessions,
+    count(*) FILTER (WHERE event_name = 'page_fetch') AS page_fetches
+  FROM public.event_logs
+  WHERE created_at >= now() - interval '30 days'
+    AND country_code IS NOT NULL
+  GROUP BY country_code
+), scored AS (
+  SELECT
+    e.country_code,
+    e.total_ads_30d,
+    CASE WHEN e.continue_sessions + e.drop_sessions > 0
+      THEN e.continue_sessions::NUMERIC / (e.continue_sessions + e.drop_sessions)
+      ELSE NULL
+    END AS continue_rate_30d,
+    CASE WHEN e.continue_sessions + e.drop_sessions > 0
+      THEN e.drop_sessions::NUMERIC / (e.continue_sessions + e.drop_sessions)
+      ELSE NULL
+    END AS drop_rate_30d,
+    CASE WHEN e.sessions_30d > 0 THEN e.page_fetches::NUMERIC / e.sessions_30d ELSE NULL END AS depth,
+    e.sessions_30d,
+    p.ads_per_session_cap,
+    p.trigger_pages,
+    p.enabled,
+    p.country_code IS NOT NULL AS has_policy_override
+  FROM engagement e
+  LEFT JOIN public.ad_policy_country p ON p.country_code = e.country_code
+)
+SELECT
+  scored.country_code,
+  scored.total_ads_30d,
+  scored.continue_rate_30d,
+  scored.drop_rate_30d,
+  scored.depth,
+  CASE WHEN sessions_30d >= 500 THEN 'HIGH' WHEN sessions_30d >= 100 THEN 'MED' ELSE 'LOW' END AS confidence,
+  CASE
+    WHEN sessions_30d < 100 THEN 'HOLD'
+    WHEN drop_rate_30d >= 0.55 THEN 'DECREASE'
+    WHEN continue_rate_30d >= 0.65 AND depth >= 4 THEN 'INCREASE'
+    ELSE 'HOLD'
+  END AS signal,
+  scored.ads_per_session_cap AS current_cap,
+  scored.trigger_pages AS current_trigger,
+  COALESCE(scored.enabled, true) AS current_enabled,
+  CASE
+    WHEN drop_rate_30d >= 0.55 THEN GREATEST(0.5, COALESCE(scored.ads_per_session_cap, 1) - 0.25)
+    WHEN continue_rate_30d >= 0.65 AND depth >= 4 THEN COALESCE(scored.ads_per_session_cap, 1) + 0.25
+    ELSE COALESCE(scored.ads_per_session_cap, 1)
+  END AS recommended_cap,
+  COALESCE(scored.trigger_pages, 4) AS recommended_trigger,
+  CASE WHEN scored.has_policy_override THEN 'override' ELSE 'default' END AS policy_source,
+  COALESCE(drop_rate_30d, 0) AS friction_risk_score,
+  CASE
+    WHEN sessions_30d < 100 THEN 'LOW_VOLUME'
+    WHEN drop_rate_30d >= 0.55 THEN 'HIGH'
+    WHEN drop_rate_30d >= 0.35 THEN 'MED'
+    ELSE 'LOW'
+  END AS friction_risk_level,
+  CASE
+    WHEN sessions_30d < 100 THEN 'Not enough local dev volume.'
+    WHEN drop_rate_30d >= 0.55 THEN 'High simulated drop after ad.'
+    ELSE 'Simulated tolerance is within expected local range.'
+  END AS friction_risk_reason,
+  scored.sessions_30d,
+  now() AS updated_at
+FROM scored;
+
+CREATE OR REPLACE VIEW public.country_optimization_action_summary_30d AS
+WITH rows AS (
+  SELECT * FROM public.country_optimization_v1
+)
+SELECT
+  count(*)::INT AS total_countries,
+  count(*) FILTER (WHERE signal IN ('INCREASE','DECREASE'))::INT AS actionable_countries,
+  count(*) FILTER (WHERE signal = 'INCREASE')::INT AS inc_count,
+  count(*) FILTER (WHERE signal = 'DECREASE')::INT AS dec_count,
+  count(*) FILTER (WHERE signal = 'HOLD')::INT AS hold_count,
+  count(*) FILTER (WHERE friction_risk_level = 'LOW_VOLUME')::INT AS low_volume_count,
+  count(*) FILTER (WHERE friction_risk_level = 'HIGH')::INT AS high_risk_count,
+  count(*) FILTER (WHERE friction_risk_level = 'MED')::INT AS med_risk_count,
+  'Local dev optimization signals are simulated.'::TEXT AS top_actions,
+  ARRAY[
+    'Use only to verify Revenue Lab UI and calculations.',
+    'Not evidence of real monetization performance.'
+  ]::TEXT[] AS action_bullets,
+  now() AS updated_at
+FROM rows;
+
+CREATE OR REPLACE FUNCTION public._lethe_reports_range_days(p_range TEXT)
+RETURNS INTEGER
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT CASE COALESCE(p_range, '7d')
+    WHEN '60m' THEN 1
+    WHEN '24h' THEN 1
+    WHEN '7d' THEN 7
+    WHEN '30d' THEN 30
+    ELSE 7
+  END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_reports_overview_v2(
+  p_range TEXT DEFAULT '7d', p_region TEXT DEFAULT NULL, p_country TEXT DEFAULT NULL, p_city TEXT DEFAULT NULL
+)
+RETURNS TABLE (
+  reports_total BIGINT, reports_per_1k_reads NUMERIC, hidden_total BIGINT,
+  severity_score NUMERIC, spike_detected BOOLEAN, actions_total BIGINT
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  WITH params AS (SELECT public._lethe_reports_range_days(p_range) AS days),
+  reports_filtered AS (
+    SELECT r.*, c.region, c.country_code, c.city_code, c.is_hidden
+    FROM public.reports r
+    LEFT JOIN public.confessions c ON c.id = r.confession_id
+    CROSS JOIN params p
+    WHERE r.created_at >= now() - make_interval(days => p.days)
+      AND (p_region IS NULL OR c.region = p_region)
+      AND (p_country IS NULL OR c.country_code = p_country)
+      AND (p_city IS NULL OR c.city_code = p_city)
+  ), reads AS (
+    SELECT count(*) AS reads_count
+    FROM public.event_logs e
+    CROSS JOIN params p
+    WHERE e.created_at >= now() - make_interval(days => p.days)
+      AND e.event_name IN ('feed_view','page_fetch')
+      AND (p_region IS NULL OR e.region = p_region)
+      AND (p_country IS NULL OR e.country_code = p_country)
+      AND (p_city IS NULL OR e.city_code = p_city)
+  ), actions AS (
+    SELECT count(*) AS actions_count
+    FROM public.moderation_actions a
+    LEFT JOIN public.confessions c ON c.id = a.confession_id
+    CROSS JOIN params p
+    WHERE a.created_at >= now() - make_interval(days => p.days)
+      AND (p_region IS NULL OR c.region = p_region)
+      AND (p_country IS NULL OR c.country_code = p_country)
+      AND (p_city IS NULL OR c.city_code = p_city)
+  ), totals AS (
+    SELECT
+      count(*) AS reports_count,
+      count(*) FILTER (WHERE COALESCE(is_hidden, false)) AS hidden_count,
+      count(*) FILTER (WHERE reason IN ('threats','identifying','contact')) AS severe_count
+    FROM reports_filtered
+  )
+  SELECT
+    totals.reports_count,
+    CASE WHEN reads.reads_count > 0 THEN totals.reports_count * 1000.0 / reads.reads_count ELSE NULL END,
+    totals.hidden_count,
+    CASE WHEN totals.reports_count > 0 THEN ROUND(totals.severe_count * 100.0 / totals.reports_count, 2) ELSE 0 END,
+    totals.reports_count > 50,
+    actions.actions_count
+  FROM totals, reads, actions;
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_reports_breakdown_v2(
+  p_range TEXT DEFAULT '7d', p_region TEXT DEFAULT NULL, p_country TEXT DEFAULT NULL, p_city TEXT DEFAULT NULL
+)
+RETURNS TABLE (top_reasons JSONB, top_locations JSONB)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  WITH params AS (SELECT public._lethe_reports_range_days(p_range) AS days),
+  r AS (
+    SELECT r.reason, c.city_code, c.region, c.country_code
+    FROM public.reports r
+    LEFT JOIN public.confessions c ON c.id = r.confession_id
+    CROSS JOIN params p
+    WHERE r.created_at >= now() - make_interval(days => p.days)
+      AND (p_region IS NULL OR c.region = p_region)
+      AND (p_country IS NULL OR c.country_code = p_country)
+      AND (p_city IS NULL OR c.city_code = p_city)
+  ), total AS (SELECT count(*)::NUMERIC AS n FROM r),
+  reasons AS (
+    SELECT COALESCE(jsonb_agg(jsonb_build_object('key', reason, 'count', cnt, 'pct', CASE WHEN total.n > 0 THEN ROUND(cnt * 100.0 / total.n, 1) ELSE 0 END) ORDER BY cnt DESC), '[]'::jsonb) AS data
+    FROM (SELECT reason, count(*) AS cnt FROM r GROUP BY reason LIMIT 8) x, total
+  ), locations AS (
+    SELECT COALESCE(jsonb_agg(jsonb_build_object('key', city_code, 'count', cnt, 'pct', CASE WHEN total.n > 0 THEN ROUND(cnt * 100.0 / total.n, 1) ELSE 0 END) ORDER BY cnt DESC), '[]'::jsonb) AS data
+    FROM (SELECT COALESCE(city_code, 'unknown') AS city_code, count(*) AS cnt FROM r GROUP BY COALESCE(city_code, 'unknown') LIMIT 8) x, total
+  )
+  SELECT reasons.data, locations.data FROM reasons, locations;
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_reports_trend_v2(
+  p_range TEXT DEFAULT '7d', p_region TEXT DEFAULT NULL, p_country TEXT DEFAULT NULL, p_city TEXT DEFAULT NULL
+)
+RETURNS TABLE (trend JSONB)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  WITH params AS (SELECT public._lethe_reports_range_days(p_range) AS days),
+  days AS (
+    SELECT generate_series((current_date - ((SELECT days FROM params) - 1)), current_date, interval '1 day')::DATE AS d
+  ), counts AS (
+    SELECT r.created_at::DATE AS d, count(*) AS cnt
+    FROM public.reports r
+    LEFT JOIN public.confessions c ON c.id = r.confession_id
+    CROSS JOIN params p
+    WHERE r.created_at >= now() - make_interval(days => p.days)
+      AND (p_region IS NULL OR c.region = p_region)
+      AND (p_country IS NULL OR c.country_code = p_country)
+      AND (p_city IS NULL OR c.city_code = p_city)
+    GROUP BY 1
+  )
+  SELECT COALESCE(jsonb_agg(jsonb_build_object('ts', d.d::TEXT, 'label', to_char(d.d, 'Mon DD'), 'count', COALESCE(c.cnt, 0)) ORDER BY d.d), '[]'::jsonb)
+  FROM days d
+  LEFT JOIN counts c USING (d);
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_reports_map_v2(
+  p_range TEXT DEFAULT '7d', p_region TEXT DEFAULT NULL, p_country TEXT DEFAULT NULL, p_city TEXT DEFAULT NULL
+)
+RETURNS TABLE (markers JSONB)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  WITH params AS (SELECT public._lethe_reports_range_days(p_range) AS days),
+  r AS (
+    SELECT r.reason, c.city_code, c.region, c.lat, c.lng, c.is_hidden
+    FROM public.reports r
+    JOIN public.confessions c ON c.id = r.confession_id
+    CROSS JOIN params p
+    WHERE r.created_at >= now() - make_interval(days => p.days)
+      AND c.lat IS NOT NULL
+      AND c.lng IS NOT NULL
+      AND (p_region IS NULL OR c.region = p_region)
+      AND (p_country IS NULL OR c.country_code = p_country)
+      AND (p_city IS NULL OR c.city_code = p_city)
+  ), city_counts AS (
+    SELECT
+      city_code,
+      region,
+      avg(lat) AS lat,
+      avg(lng) AS lng,
+      count(*) AS reports,
+      count(*) FILTER (WHERE COALESCE(is_hidden, false)) AS hidden
+    FROM r
+    GROUP BY city_code, region
+  ), top_reason AS (
+    SELECT DISTINCT ON (city_code) city_code, reason
+    FROM (SELECT city_code, reason, count(*) AS cnt FROM r GROUP BY city_code, reason) x
+    ORDER BY city_code, cnt DESC
+  )
+  SELECT COALESCE(jsonb_agg(jsonb_build_object(
+    'city_code', c.city_code,
+    'region', c.region,
+    'lat', c.lat,
+    'lng', c.lng,
+    'reports', c.reports,
+    'hidden', c.hidden,
+    'top_reason', tr.reason
+  ) ORDER BY c.reports DESC), '[]'::jsonb)
+  FROM city_counts c
+  LEFT JOIN top_reason tr USING (city_code);
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_reports_geo_coverage_v2(
+  p_days INT DEFAULT 7, p_region TEXT DEFAULT NULL, p_country_code TEXT DEFAULT NULL, p_city_code TEXT DEFAULT NULL
+)
+RETURNS TABLE (
+  total_reports BIGINT, backfillable_reports BIGINT, ungeocodable_reports BIGINT,
+  region_covered BIGINT, city_covered BIGINT, country_covered BIGINT,
+  region_pct NUMERIC, city_pct NUMERIC, country_pct NUMERIC
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  WITH r AS (
+    SELECT r.*, c.region, c.country_code, c.city_code
+    FROM public.reports r
+    LEFT JOIN public.confessions c ON c.id = r.confession_id
+    WHERE r.created_at >= now() - make_interval(days => p_days)
+      AND (p_region IS NULL OR c.region = p_region)
+      AND (p_country_code IS NULL OR c.country_code = p_country_code)
+      AND (p_city_code IS NULL OR c.city_code = p_city_code)
+  ), a AS (
+    SELECT
+      count(*) AS total,
+      count(*) FILTER (WHERE confession_id IS NOT NULL) AS backfillable,
+      count(*) FILTER (WHERE confession_id IS NULL) AS ungeocodable,
+      count(*) FILTER (WHERE region IS NOT NULL) AS region_count,
+      count(*) FILTER (WHERE city_code IS NOT NULL) AS city_count,
+      count(*) FILTER (WHERE country_code IS NOT NULL) AS country_count
+    FROM r
+  )
+  SELECT
+    total,
+    backfillable,
+    ungeocodable,
+    region_count,
+    city_count,
+    country_count,
+    CASE WHEN backfillable > 0 THEN region_count * 100.0 / backfillable ELSE 0 END,
+    CASE WHEN backfillable > 0 THEN city_count * 100.0 / backfillable ELSE 0 END,
+    CASE WHEN backfillable > 0 THEN country_count * 100.0 / backfillable ELSE 0 END
+  FROM a;
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_reports_groups(
+  p_limit INT DEFAULT 50,
+  p_only_unhandled BOOLEAN DEFAULT true,
+  p_reason TEXT DEFAULT NULL,
+  p_visibility TEXT DEFAULT NULL,
+  p_sort TEXT DEFAULT 'last_reported_desc'
+)
+RETURNS TABLE (
+  confession_id UUID, confession_text TEXT, confession_region TEXT,
+  confession_is_hidden BOOLEAN, total_reports BIGINT, unhandled_reports BIGINT,
+  handled_all BOOLEAN, first_reported_at TIMESTAMPTZ, last_reported_at TIMESTAMPTZ,
+  reason_breakdown_json JSONB, report_city_code_sample TEXT
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  WITH r AS (
+    SELECT r.*, c.text, c.region, c.is_hidden, c.city_code
+    FROM public.reports r
+    JOIN public.confessions c ON c.id = r.confession_id
+    WHERE (p_reason IS NULL OR r.reason = p_reason)
+      AND (p_visibility IS NULL OR (p_visibility = 'hidden' AND COALESCE(c.is_hidden,false)) OR (p_visibility = 'visible' AND NOT COALESCE(c.is_hidden,false)))
+  ), g AS (
+    SELECT
+      confession_id,
+      max(text) AS text,
+      max(region) AS region,
+      bool_or(COALESCE(is_hidden, false)) AS is_hidden,
+      count(*) AS total_reports,
+      count(*) FILTER (WHERE status = 'open') AS unhandled_reports,
+      bool_and(status <> 'open') AS handled_all,
+      min(created_at) AS first_reported_at,
+      max(created_at) AS last_reported_at,
+      COALESCE(jsonb_object_agg(reason, reason_count), '{}'::jsonb) AS reason_breakdown_json,
+      max(city_code) AS report_city_code_sample
+    FROM (
+      SELECT r.*, count(*) OVER (PARTITION BY confession_id, reason) AS reason_count
+      FROM r
+    ) x
+    GROUP BY confession_id
+  )
+  SELECT
+    confession_id, text, region, is_hidden, total_reports, unhandled_reports,
+    handled_all, first_reported_at, last_reported_at, reason_breakdown_json,
+    report_city_code_sample
+  FROM g
+  WHERE (NOT p_only_unhandled OR unhandled_reports > 0)
+  ORDER BY
+    CASE WHEN p_sort = 'total_reports_desc' THEN total_reports END DESC,
+    CASE WHEN p_sort = 'unhandled_reports_desc' THEN unhandled_reports END DESC,
+    last_reported_at DESC
+  LIMIT p_limit;
+$$;
+
+CREATE OR REPLACE FUNCTION public.set_reports_handled_for_confession(
+  p_confession_id UUID,
+  p_handled BOOLEAN DEFAULT true
+)
+RETURNS TABLE (updated_count INTEGER)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  UPDATE public.reports
+  SET handled = p_handled,
+      handled_at = CASE WHEN p_handled THEN now() ELSE NULL END,
+      handled_by = CASE WHEN p_handled THEN 'local-dev' ELSE NULL END,
+      status = CASE WHEN p_handled THEN 'reviewed' ELSE 'open' END
+  WHERE confession_id = p_confession_id;
+
+  GET DIAGNOSTICS updated_count = ROW_COUNT;
+  RETURN NEXT;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_pulse_metrics(
+  p_date DATE,
+  p_region TEXT DEFAULT NULL,
+  p_country_code TEXT DEFAULT NULL,
+  p_city_code TEXT DEFAULT NULL,
+  p_mode TEXT DEFAULT NULL
+)
+RETURNS TABLE (sessions_today BIGINT, readers_today BIGINT, posts_today BIGINT)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  SELECT sessions, readers, posts
+  FROM public.get_pulse_metrics_range(
+    p_date::TIMESTAMPTZ,
+    (p_date + 1)::TIMESTAMPTZ,
+    CASE WHEN p_region = 'WORLD' THEN NULL ELSE p_region END,
+    p_country_code,
+    p_city_code,
+    p_mode
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_latest_metrics_day(
+  p_city TEXT DEFAULT NULL,
+  p_region TEXT DEFAULT NULL
+)
+RETURNS TABLE (day_bucket DATE)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  SELECT max(e.day_bucket)
+  FROM public.event_logs e
+  WHERE e.event_name = 'session_start'
+    AND (p_region IS NULL OR p_region = 'WORLD' OR e.region = p_region)
+    AND (p_city IS NULL OR p_city = 'WORLD' OR e.city_code = p_city);
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_year_wheel_v1(
+  p_scope TEXT DEFAULT 'global', p_region TEXT DEFAULT NULL, p_country TEXT DEFAULT NULL,
+  p_city TEXT DEFAULT NULL, p_days INT DEFAULT 365, p_end_date DATE DEFAULT CURRENT_DATE
+)
+RETURNS TABLE (
+  month_start DATE, sessions BIGINT, posts BIGINT, posts_per_session NUMERIC,
+  mood_pos BIGINT, mood_neg BIGINT, mood_balance NUMERIC
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  SELECT *
+  FROM public.get_year_wheel_v1(p_scope, p_region, p_country, p_days, p_end_date);
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_emotion_fingerprint_v1(
+  p_scope TEXT DEFAULT 'global', p_region TEXT DEFAULT NULL, p_country TEXT DEFAULT NULL,
+  p_city TEXT DEFAULT NULL, p_days INT DEFAULT 365, p_end_date DATE DEFAULT CURRENT_DATE
+)
+RETURNS TABLE (month_start DATE, emotion TEXT, count BIGINT)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  SELECT *
+  FROM public.get_emotion_fingerprint_v1(p_scope, p_region, p_country, p_days, p_end_date);
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_trends_movers_v1(
+  p_scope TEXT DEFAULT 'global', p_region TEXT DEFAULT NULL, p_country TEXT DEFAULT NULL,
+  p_city TEXT DEFAULT NULL, p_end_date DATE DEFAULT CURRENT_DATE
+)
+RETURNS TABLE (tag TEXT, current_7d BIGINT, baseline_28d NUMERIC, delta_pct NUMERIC, status TEXT)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  SELECT *
+  FROM public.get_trends_movers_v1(p_scope, p_region, p_country, p_end_date);
+$$;
+
+DROP FUNCTION IF EXISTS public.get_moderation_actions_v1(
+  INT,
+  TEXT,
+  TEXT,
+  TEXT,
+  INT,
+  INT
+);
+
+CREATE OR REPLACE FUNCTION public.get_moderation_actions_v1(
+  p_days INT DEFAULT 7, p_region TEXT DEFAULT NULL, p_country TEXT DEFAULT NULL,
+  p_city TEXT DEFAULT NULL, p_action_type TEXT DEFAULT NULL, p_limit INT DEFAULT 25,
+  p_offset INT DEFAULT 0
+)
+RETURNS TABLE (
+  id UUID, created_at TIMESTAMPTZ, action_type TEXT, confession_id UUID,
+  report_id UUID, reason TEXT, city_code TEXT, region TEXT, country_code TEXT, source TEXT
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  SELECT
+    a.id, a.created_at, a.action_type, a.confession_id, a.report_id, a.reason,
+    c.city_code, c.region, c.country_code, COALESCE(a.context->>'source','dev_seed')
+  FROM public.moderation_actions a
+  LEFT JOIN public.confessions c ON c.id = a.confession_id
+  WHERE a.created_at >= now() - make_interval(days => p_days)
+    AND (p_region IS NULL OR c.region = p_region)
+    AND (p_country IS NULL OR c.country_code = p_country)
+    AND (p_city IS NULL OR c.city_code = p_city)
+    AND (p_action_type IS NULL OR a.action_type = p_action_type)
+  ORDER BY a.created_at DESC
+  LIMIT p_limit OFFSET p_offset;
+$$;
+
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated;
 GRANT SELECT ON public.ad_policy_effective TO anon, authenticated;
+GRANT SELECT ON public.country_optimization_v1 TO anon, authenticated;
+GRANT SELECT ON public.country_optimization_action_summary_30d TO anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.ad_policy_country TO anon, authenticated;
 
 COMMIT;

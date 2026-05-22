@@ -279,8 +279,16 @@ Hardened so far:
   the join; 5-param wrapper adds defence-in-depth gate before delegating;
   admin: 4 rows both overloads; non-admin: 0 rows both overloads)
 
+- `public.get_year_wheel_v1(...)` — BOTH overloads — in
+  `055_harden_get_year_wheel_v1.sql`
+  (2 overloads: 5-param core + 6-param wrapper; frontend calls 6-param via
+  scopeToRpc(); CTE aliases em_month/em_sessions/em_posts/cm_month/cm_mood_pos/
+  cm_mood_neg/cm_total replace original names that matched output vars;
+  all WHERE/JOIN refs use explicit table aliases; admin: 13 rows both overloads;
+  non-admin: 0 rows)
+
 Still ungated:
-- seasonality RPCs (`get_year_wheel_v1`, `get_emotion_fingerprint_v1`)
+- `get_emotion_fingerprint_v1` (2 overloads — same p_city wrapper pattern)
 - filter helpers (`get_insights_region_options`, `get_insights_country_options`,
   `get_insights_city_options`)
 - trends and seasonality read aggregates (`get_trends_comparison_v1`,
@@ -302,8 +310,8 @@ All moderation write RPCs and high-risk moderation read RPCs are now hardened.
 All Reports-page RPCs are now hardened. The entire Reports section of
 Lethe Insights is production-safe.
 
-Recommended next category: remaining seasonality RPCs (`get_year_wheel_v1`,
-`get_emotion_fingerprint_v1`), then filter helpers (`get_insights_region_options`,
+Recommended next category: `get_emotion_fingerprint_v1` (2 overloads —
+same p_city wrapper pattern), then filter helpers (`get_insights_region_options`,
 `get_insights_country_options`, `get_insights_city_options`) which are lowest risk.
 
 After that: trends, seasonality, and remaining analytics reads

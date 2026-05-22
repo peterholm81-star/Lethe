@@ -255,11 +255,18 @@ Hardened so far:
   as postgres owner; ORDER BY 2 DESC avoids output-variable ambiguity;
   admin returns 23 country rows, non-admin returns 0 rows)
 
+- `public.get_pulse_metrics(...)` and `public.get_latest_metrics_day(...)` in
+  `052_harden_pulse_metrics_and_latest_day.sql`
+  (batched together — both used in useInsightsActiveDay.ts bootstrap hook;
+  get_pulse_metrics delegates to get_pulse_metrics_range (already hardened,
+  migration 023) — explicit gate added for defence-in-depth; get_latest_metrics_day
+  reads event_logs directly, e.day_bucket alias avoids output-variable shadowing;
+  both return 0 rows for non-admin; admin: get_pulse_metrics=3/3/0, latest=2026-05-22)
+
 Still ungated:
 - trends and seasonality RPCs (`get_trends_comparison_v1`,
   `get_trends_trendline_v1`, `get_year_wheel_v1`, `get_emotion_fingerprint_v1`,
   `get_trends_movers_v1`)
-- remaining analytics reads (`get_pulse_metrics`, `get_latest_metrics_day`)
 - filter helpers (`get_insights_region_options`, `get_insights_country_options`,
   `get_insights_city_options`)
 - trends and seasonality read aggregates (`get_trends_comparison_v1`,
@@ -281,8 +288,7 @@ All moderation write RPCs and high-risk moderation read RPCs are now hardened.
 All Reports-page RPCs are now hardened. The entire Reports section of
 Lethe Insights is production-safe.
 
-Recommended next category: remaining analytics reads (`get_pulse_metrics`,
-`get_latest_metrics_day`), then trends and seasonality read RPCs
+Recommended next category: trends and seasonality read RPCs
 (`get_trends_comparison_v1`, `get_trends_trendline_v1`, `get_year_wheel_v1`,
 `get_emotion_fingerprint_v1`, `get_trends_movers_v1`), then filter helpers
 (`get_insights_region_options`, `get_insights_country_options`,

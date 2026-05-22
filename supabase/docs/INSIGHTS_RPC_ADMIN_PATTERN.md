@@ -206,6 +206,9 @@ Hardened so far:
   `042_harden_get_reports_sla_v1.sql`
   (also fixed pre-existing shape mismatch: old 3-column shape replaced with
   5-column shape the frontend has always expected)
+- `public.get_reports_geo_coverage_v1(...)` in
+  `043_harden_get_reports_geo_coverage_v1.sql`
+  (no frontend caller; hardened preemptively before dashboard wiring)
 
 Still ungated:
 - remaining reports aggregates (`get_reports_map_v2`, `get_reports_breakdown_v2`,

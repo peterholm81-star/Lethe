@@ -397,6 +397,7 @@ function App() {
     // Record page fetch for pagination (not initial load)
     if (!reset && result.confessions.length > 0) {
       recordPageFetch()
+      logEvent('page_fetch', { mode: 'world', ...(geoContextRef.current ?? {}) })
     }
     
     setWorldFeed((prev) => ({
@@ -440,6 +441,7 @@ function App() {
     // Record page fetch for pagination (not initial load)
     if (!reset && result.confessions.length > 0) {
       recordPageFetch()
+      logEvent('page_fetch', { mode: 'somewhere', ...(geoContextRef.current ?? {}) })
     }
     
     setPlaceFeed((prev) => ({
@@ -481,6 +483,7 @@ function App() {
       // Record page fetch for pagination (not initial load)
       if (result.confessions.length > 0) {
         recordPageFetch()
+        logEvent('page_fetch', { mode: 'near', ...(geoContextRef.current ?? {}) })
       }
       
       setPlaceFeed((prev) => ({

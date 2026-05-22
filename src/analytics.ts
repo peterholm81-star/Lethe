@@ -1,5 +1,22 @@
 import { supabase } from './supabase'
 
+// =============================================================================
+// Analytics Event Taxonomy — Phase E.2
+// =============================================================================
+// Canonical production events. These are the ONLY events the app may emit.
+// Any new event must be added here AND documented in docs/analytics-taxonomy.md.
+//
+// Deferred events (exist in Insights RPCs / dev seed but NOT emitted yet):
+//   'ad_shown' | 'continue_after_ad' | 'drop_after_ad'
+// =============================================================================
+export type AnalyticsEventName =
+  | 'session_start'   // App mount. No geo. Browse-only sessions stay geo-null.
+  | 'feed_view'       // Initial feed open or tab switch. Includes session geo if available.
+  | 'page_fetch'      // Successful pagination beyond initial load. Never on first fetch.
+  | 'post_attempt'    // User submitted the post form. Before RPC response.
+  | 'post_success'    // Confession inserted successfully. Carries fresh server-resolved geo.
+  | 'post_reject'     // Confession rejected (validation, rate-limit, or network).
+
 const SESSION_HASH_KEY = 'lethe_session_hash'
 const SESSION_CREATED_KEY = 'lethe_session_created_at'
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
@@ -44,9 +61,10 @@ function getTimeBucket(): number {
   return new Date().getHours()
 }
 
-// Log an analytics event (best effort, fail silently)
+// Log an analytics event (best effort, fail silently).
+// eventName is narrowed to AnalyticsEventName — TypeScript will reject unknown names.
 export async function logEvent(
-  eventName: string,
+  eventName: AnalyticsEventName,
   meta?: {
     mode?: string
     city_code?: string | null

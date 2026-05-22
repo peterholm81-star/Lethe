@@ -194,9 +194,12 @@ Hardened so far:
 - `public.get_reports_escalated_v1(...)` in
   `037_harden_get_reports_escalated_v1.sql`
 
+- `public.get_moderation_actions_v1(...)` in
+  `038_harden_get_moderation_actions_v1.sql`
+
 Still ungated:
-  `get_reports_overview`, `get_reports_overview_v2`, `get_reports_map_v2`, etc.)
-- moderation read aggregates (`get_moderation_actions_v1`)
+- reports overview and aggregates (`get_reports_overview`, `get_reports_overview_v2`,
+  `get_reports_map_v2`, etc.)
 - trends and seasonality read aggregates (`get_trends_comparison_v1`,
   `get_trends_trendline_v1`, `get_year_wheel_v1`, `get_emotion_fingerprint_v1`,
   `get_trends_movers_v1`)
@@ -211,7 +214,18 @@ Phase 1 (critical write RPCs) is complete. All four write RPCs are now
 admin-gated with explicit `insufficient_privilege` errors for non-admins and
 no dev-seed hardcodings in production bodies.
 
-Recommended next: reports aggregate summaries — `get_reports_overview`,
-`get_reports_overview_v2`, `get_moderation_actions_v1`, and remaining
-reports aggregates (outcomes, SLA, geo coverage, hotspots, spike explain,
-breakdown, trend, map).
+All moderation write RPCs and high-risk moderation read RPCs are now hardened.
+
+Recommended next category: reports overview and aggregate read RPCs —
+`get_reports_overview`, `get_reports_overview_v2`, and remaining reports
+aggregates (outcomes, SLA, geo coverage, hotspots, spike explain, breakdown,
+trend, map). These do not expose raw confession text but do expose moderation
+workload stats that should be admin-only.
+
+After that: trends, seasonality, and remaining analytics reads
+(`get_trends_comparison_v1`, `get_trends_trendline_v1`, `get_year_wheel_v1`,
+`get_emotion_fingerprint_v1`, `get_trends_movers_v1`, `get_sessions_by_country_range`,
+`get_pulse_metrics`, `get_latest_metrics_day`).
+
+Filter helpers (`get_insights_region_options`, `get_insights_country_options`,
+`get_insights_city_options`) are lowest risk and can be deferred to last.

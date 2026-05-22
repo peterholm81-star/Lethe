@@ -241,8 +241,21 @@ Hardened so far:
   plpgsql shadowing of the "days" column in the params CTE; admin returns
   30-point daily array, non-admin returns 0 rows)
 
+- `public.get_reports_map_v2(...)` in
+  `050_harden_get_reports_map_v2.sql`
+  (plpgsql rewrite; 4-parameter signature, single `markers jsonb` column
+  preserved; CTE columns fully aliased to avoid plpgsql shadowing; no output
+  column name conflicts; admin returns 1 row with marker array, non-admin
+  returns 0 rows; dev seed lacks lat/lng so marker array is [] locally)
+
 Still ungated:
-- remaining reports aggregates (`get_reports_map_v2`, etc.)
+- trends and seasonality RPCs (`get_trends_comparison_v1`,
+  `get_trends_trendline_v1`, `get_year_wheel_v1`, `get_emotion_fingerprint_v1`,
+  `get_trends_movers_v1`)
+- remaining analytics reads (`get_sessions_by_country_range`,
+  `get_pulse_metrics`, `get_latest_metrics_day`)
+- filter helpers (`get_insights_region_options`, `get_insights_country_options`,
+  `get_insights_city_options`)
 - trends and seasonality read aggregates (`get_trends_comparison_v1`,
   `get_trends_trendline_v1`, `get_year_wheel_v1`, `get_emotion_fingerprint_v1`,
   `get_trends_movers_v1`)
@@ -259,9 +272,18 @@ no dev-seed hardcodings in production bodies.
 
 All moderation write RPCs and high-risk moderation read RPCs are now hardened.
 
-Recommended next category: remaining reports aggregate read RPCs —
-`get_reports_map_v2`. This does not expose raw confession text but does
-expose moderation geo-density data that should be admin-only.
+All Reports-page RPCs are now hardened. The entire Reports section of
+Lethe Insights is production-safe.
+
+Recommended next category: trends and seasonality read RPCs —
+`get_trends_comparison_v1`, `get_trends_trendline_v1`, `get_year_wheel_v1`,
+`get_emotion_fingerprint_v1`, `get_trends_movers_v1`. These expose
+temporal analytics trends that should be admin-only.
+
+After that: remaining analytics reads (`get_sessions_by_country_range`,
+`get_pulse_metrics`, `get_latest_metrics_day`), then filter helpers
+(`get_insights_region_options`, `get_insights_country_options`,
+`get_insights_city_options`) which are lowest risk.
 
 After that: trends, seasonality, and remaining analytics reads
 (`get_trends_comparison_v1`, `get_trends_trendline_v1`, `get_year_wheel_v1`,

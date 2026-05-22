@@ -149,8 +149,16 @@ export type InsertConfessionParams = {
   lng?: number
 }
 
+// Geo resolved server-side from insert_confession (migration 062).
+// All fields are nullable — NULL when lat/lng absent or no city within 100 km.
+export type PostGeo = {
+  city_code:    string | null
+  region:       string | null
+  country_code: string | null
+}
+
 export type InsertConfessionResult = 
-  | { ok: true; confession: Confession }
+  | { ok: true; confession: Confession; geo: PostGeo }
   | { ok: false; error: 'EMPTY_TEXT' | 'TEXT_TOO_LONG' | 'RATE_LIMIT' | 'BURST_LIMIT' | 'CONTENT_BLOCKED' | 'ERROR'; message: string }
 
 /**
@@ -207,7 +215,7 @@ export async function insertConfession(params: InsertConfessionParams): Promise<
       return { ok: false, error: 'ERROR', message: 'Could not save confession' }
     }
 
-    if (DEV) console.log('[insertConfession] success:', row.id)
+    if (DEV) console.log('[insertConfession] success:', row.id, 'geo:', row.city_code ?? 'null')
     return { 
       ok: true, 
       confession: {
@@ -215,7 +223,12 @@ export async function insertConfession(params: InsertConfessionParams): Promise<
         text: row.text,
         created_at: row.created_at,
         expires_at: row.expires_at,
-      }
+      },
+      geo: {
+        city_code:    row.city_code    ?? null,
+        region:       row.region       ?? null,
+        country_code: row.country_code ?? null,
+      },
     }
   } catch (err) {
     if (DEV) console.error('[insertConfession] exception:', err)

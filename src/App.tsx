@@ -9,6 +9,7 @@ import {
   type PageCursor,
   type CachedPlace,
   type InsertConfessionResult,
+  type PostGeo,
 } from './api'
 import { getCachedPlace, setCachedPlace, getRandomFromList, type ResolvedPlace } from './placeCache'
 import { logEvent } from './analytics'
@@ -174,6 +175,10 @@ function App() {
   const [adInserted, setAdInserted] = useState(false)
   const [adInsertIndex, setAdInsertIndex] = useState<number | null>(null)
   const adMarkedRef = useRef(false) // Guard to call markAdShown only once
+  // Phase D: in-memory geo context from the last successful post with GPS.
+  // Populated after post_success; cleared on page reload. Never persisted.
+  // Using ref (not state) avoids spurious re-renders and dep-array churn.
+  const geoContextRef = useRef<PostGeo | null>(null)
 
   // Onboarding state
   const [showOnboarding, setShowOnboarding] = useState(() => {
@@ -237,7 +242,9 @@ function App() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
   }, [])
 
-  // Log session_start event on mount
+  // Log session_start event on mount.
+  // Intentionally geo-null: fires before any post action; geoContextRef is
+  // always empty at mount. Browse-only sessions must remain geo-null.
   useEffect(() => {
     logEvent('session_start')
   }, [])
@@ -245,7 +252,7 @@ function App() {
   // Log feed_view event and debug location state when tab changes
   useEffect(() => {
     if (DEV) console.log('[location] mode', tab, { deviceLocation, somewherePlace })
-    logEvent('feed_view', { mode: tab })
+    logEvent('feed_view', { mode: tab, ...(geoContextRef.current ?? {}) })
   }, [tab, deviceLocation, somewherePlace])
 
   // Handle ad insertion: when ad is armed and not yet inserted, insert it at the END of current feed
@@ -771,8 +778,8 @@ function App() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
 
-    // Log post attempt
-    logEvent('post_attempt', { mode: tab })
+    // Log post attempt — include geo from prior post in this session if available
+    logEvent('post_attempt', { mode: tab, ...(geoContextRef.current ?? {}) })
 
     if (!supabase) return
 
@@ -794,7 +801,7 @@ function App() {
     const trimmed = text.trim()
     if (!trimmed) {
       setError('Write something first.')
-      logEvent('post_reject', { mode: tab, reason_bucket: 'validation' })
+      logEvent('post_reject', { mode: tab, reason_bucket: 'validation', ...(geoContextRef.current ?? {}) })
       return
     }
 
@@ -819,12 +826,16 @@ function App() {
           : result.error === 'RATE_LIMIT' || result.error === 'BURST_LIMIT'
             ? 'rate_limit'
             : 'network'
-      logEvent('post_reject', { mode: tab, reason_bucket: reasonBucket })
+      logEvent('post_reject', { mode: tab, reason_bucket: reasonBucket, ...(geoContextRef.current ?? {}) })
       return
     }
 
-    // Log success
-    logEvent('post_success', { mode: tab })
+    // Store resolved geo for subsequent events in this session.
+    // Only cache when a city was actually matched (city_code non-null).
+    if (result.geo.city_code !== null) {
+      geoContextRef.current = result.geo
+    }
+    logEvent('post_success', { mode: tab, ...result.geo })
 
     setText('')
     setSubmitting(false)

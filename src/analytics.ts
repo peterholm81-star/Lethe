@@ -49,10 +49,14 @@ export async function logEvent(
   eventName: string,
   meta?: {
     mode?: string
-    city_code?: string
-    language_detected?: string
-    emotion_bucket?: string
-    reason_bucket?: string
+    city_code?: string | null
+    language_detected?: string | null
+    emotion_bucket?: string | null
+    reason_bucket?: string | null
+    // Phase D: server-resolved geo passed through from insert_confession result.
+    // Populated only after a successful post with GPS in the same session.
+    region?: string | null
+    country_code?: string | null
   }
 ): Promise<void> {
   if (!supabase) return
@@ -68,6 +72,8 @@ export async function logEvent(
       language_detected: meta?.language_detected ?? null,
       emotion_bucket: meta?.emotion_bucket ?? null,
       reason_bucket: meta?.reason_bucket ?? null,
+      region: meta?.region ?? null,
+      country_code: meta?.country_code ?? null,
     })
   } catch {
     // Fail silently - analytics must never block UX

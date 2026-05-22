@@ -287,8 +287,14 @@ Hardened so far:
   all WHERE/JOIN refs use explicit table aliases; admin: 13 rows both overloads;
   non-admin: 0 rows)
 
-Still ungated:
-- `get_emotion_fingerprint_v1` (2 overloads — same p_city wrapper pattern)
+- `public.get_emotion_fingerprint_v1(...)` — BOTH overloads — in
+  `056_harden_get_emotion_fingerprint_v1.sql`
+  (2 overloads: 5-param core + 6-param wrapper; cleanest body of all
+  seasonal RPCs — all column refs already table-qualified c., positional
+  GROUP BY/ORDER BY; no alias renaming needed; admin: 3 rows both overloads;
+  non-admin: 0 rows)
+
+Still ungated (LOW risk):
 - filter helpers (`get_insights_region_options`, `get_insights_country_options`,
   `get_insights_city_options`)
 - trends and seasonality read aggregates (`get_trends_comparison_v1`,
@@ -310,9 +316,12 @@ All moderation write RPCs and high-risk moderation read RPCs are now hardened.
 All Reports-page RPCs are now hardened. The entire Reports section of
 Lethe Insights is production-safe.
 
-Recommended next category: `get_emotion_fingerprint_v1` (2 overloads —
-same p_city wrapper pattern), then filter helpers (`get_insights_region_options`,
-`get_insights_country_options`, `get_insights_city_options`) which are lowest risk.
+All CRITICAL, HIGH, and MEDIUM RPCs are now hardened. Only LOW-risk filter
+helpers remain: `get_insights_region_options`, `get_insights_country_options`,
+`get_insights_city_options`. These return geo metadata (region/country/city
+lists) for populating filter dropdowns. They expose no moderation data and
+no individual user data, but they do reveal what geo coverage Lethe has —
+harden last.
 
 After that: trends, seasonality, and remaining analytics reads
 (`get_trends_comparison_v1`, `get_trends_trendline_v1`, `get_year_wheel_v1`,

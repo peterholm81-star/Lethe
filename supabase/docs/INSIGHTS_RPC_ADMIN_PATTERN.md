@@ -229,9 +229,13 @@ Hardened so far:
   qualified to avoid plpgsql RETURNS TABLE variable ambiguity; same
   3-parameter signature, 15-column return shape, and LIMIT 20 preserved)
 
+- `public.get_reports_breakdown_v2(...)` in
+  `048_harden_get_reports_breakdown_v2.sql`
+  (plpgsql rewrite; 4-parameter signature, 2-column JSONB return shape
+  preserved exactly; single-row result; frontend handles empty gracefully)
+
 Still ungated:
-- remaining reports aggregates (`get_reports_map_v2`, `get_reports_breakdown_v2`,
-  `get_reports_trend_v2`, etc.)
+- remaining reports aggregates (`get_reports_map_v2`, `get_reports_trend_v2`, etc.)
 - trends and seasonality read aggregates (`get_trends_comparison_v1`,
   `get_trends_trendline_v1`, `get_year_wheel_v1`, `get_emotion_fingerprint_v1`,
   `get_trends_movers_v1`)
@@ -249,7 +253,7 @@ no dev-seed hardcodings in production bodies.
 All moderation write RPCs and high-risk moderation read RPCs are now hardened.
 
 Recommended next category: remaining reports aggregate read RPCs —
-`get_reports_breakdown_v2`, `get_reports_trend_v1`, `get_reports_map_v2`.
+`get_reports_trend_v2`, `get_reports_map_v2`.
 These do not expose raw confession text but do expose moderation workload
 stats that should be admin-only.
 

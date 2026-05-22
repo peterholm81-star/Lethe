@@ -271,9 +271,16 @@ Hardened so far:
   trendline: date_series replaces "days" CTE, mk/val replace metric_key/value;
   admin: 4 comparison rows, 120 trendline rows; non-admin: 0 rows)
 
+- `public.get_trends_movers_v1(...)` — BOTH overloads — in
+  `054_harden_get_trends_movers_v1.sql`
+  (2 overloads: 4-param core logic + 5-param wrapper; frontend always calls
+  5-param via scopeToRpc(); internal aliases etag/cnt/bline replace
+  tag/c/b to avoid plpgsql output-var shadowing; ON instead of USING for
+  the join; 5-param wrapper adds defence-in-depth gate before delegating;
+  admin: 4 rows both overloads; non-admin: 0 rows both overloads)
+
 Still ungated:
-- seasonality RPCs (`get_year_wheel_v1`, `get_emotion_fingerprint_v1`,
-  `get_trends_movers_v1`)
+- seasonality RPCs (`get_year_wheel_v1`, `get_emotion_fingerprint_v1`)
 - filter helpers (`get_insights_region_options`, `get_insights_country_options`,
   `get_insights_city_options`)
 - trends and seasonality read aggregates (`get_trends_comparison_v1`,
@@ -296,9 +303,8 @@ All Reports-page RPCs are now hardened. The entire Reports section of
 Lethe Insights is production-safe.
 
 Recommended next category: remaining seasonality RPCs (`get_year_wheel_v1`,
-`get_emotion_fingerprint_v1`, `get_trends_movers_v1`), then filter helpers
-(`get_insights_region_options`, `get_insights_country_options`,
-`get_insights_city_options`) which are lowest risk.
+`get_emotion_fingerprint_v1`), then filter helpers (`get_insights_region_options`,
+`get_insights_country_options`, `get_insights_city_options`) which are lowest risk.
 
 After that: trends, seasonality, and remaining analytics reads
 (`get_trends_comparison_v1`, `get_trends_trendline_v1`, `get_year_wheel_v1`,

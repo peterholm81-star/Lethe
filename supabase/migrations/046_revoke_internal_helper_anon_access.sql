@@ -44,18 +44,45 @@
 --
 -- No function bodies, signatures, or search_path are modified.
 -- No local shim restoration is required (no frontend calls these helpers).
+--
+-- Replay safety (added for fresh-install reproducibility):
+--   On a database that has never had the dev seed applied (e.g. a brand-new
+--   production deployment), these helper functions do not yet exist when this
+--   migration runs. Direct REVOKE would fail with SQLSTATE 42883.
+--   Migration 045a_create_internal_helper_functions.sql promotes both helpers
+--   into the production chain and sorts before this migration; however, CLI
+--   version constraints may cause that file to be skipped on some installs.
+--   The DO blocks below use to_regprocedure() — which returns NULL rather than
+--   raising an error when the function is absent — to guard each REVOKE group.
+--   Security intent is unchanged: if the functions exist, they are locked down
+--   identically to the original REVOKE statements. If they do not exist, the
+--   migration is a safe no-op (there is nothing to lock down).
 -- =============================================================================
 
 -- _lethe_confession_filtered
 -- Removes default PUBLIC execute grant and explicitly blocks anon and
 -- authenticated. No GRANT is needed because all callers are SECURITY DEFINER
 -- functions owned by the postgres superuser, which bypasses grant checks.
-REVOKE ALL     ON FUNCTION public._lethe_confession_filtered(DATE, DATE, TEXT, TEXT, TEXT) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public._lethe_confession_filtered(DATE, DATE, TEXT, TEXT, TEXT) FROM anon;
-REVOKE EXECUTE ON FUNCTION public._lethe_confession_filtered(DATE, DATE, TEXT, TEXT, TEXT) FROM authenticated;
+-- Wrapped in a DO block so the migration is a no-op when the function is absent.
+DO $$
+BEGIN
+  IF to_regprocedure('public._lethe_confession_filtered(date,date,text,text,text)') IS NOT NULL THEN
+    REVOKE ALL     ON FUNCTION public._lethe_confession_filtered(DATE, DATE, TEXT, TEXT, TEXT) FROM PUBLIC;
+    REVOKE EXECUTE ON FUNCTION public._lethe_confession_filtered(DATE, DATE, TEXT, TEXT, TEXT) FROM anon;
+    REVOKE EXECUTE ON FUNCTION public._lethe_confession_filtered(DATE, DATE, TEXT, TEXT, TEXT) FROM authenticated;
+  END IF;
+END
+$$;
 
 -- _lethe_event_filtered
 -- Same treatment.
-REVOKE ALL     ON FUNCTION public._lethe_event_filtered(TIMESTAMPTZ, TIMESTAMPTZ, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public._lethe_event_filtered(TIMESTAMPTZ, TIMESTAMPTZ, TEXT, TEXT, TEXT, TEXT) FROM anon;
-REVOKE EXECUTE ON FUNCTION public._lethe_event_filtered(TIMESTAMPTZ, TIMESTAMPTZ, TEXT, TEXT, TEXT, TEXT) FROM authenticated;
+-- Wrapped in a DO block so the migration is a no-op when the function is absent.
+DO $$
+BEGIN
+  IF to_regprocedure('public._lethe_event_filtered(timestamptz,timestamptz,text,text,text,text)') IS NOT NULL THEN
+    REVOKE ALL     ON FUNCTION public._lethe_event_filtered(TIMESTAMPTZ, TIMESTAMPTZ, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
+    REVOKE EXECUTE ON FUNCTION public._lethe_event_filtered(TIMESTAMPTZ, TIMESTAMPTZ, TEXT, TEXT, TEXT, TEXT) FROM anon;
+    REVOKE EXECUTE ON FUNCTION public._lethe_event_filtered(TIMESTAMPTZ, TIMESTAMPTZ, TEXT, TEXT, TEXT, TEXT) FROM authenticated;
+  END IF;
+END
+$$;

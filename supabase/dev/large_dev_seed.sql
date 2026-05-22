@@ -1084,6 +1084,9 @@ AS $$
   LIMIT 20;
 $$;
 
+-- DROP required because migration 042 corrected the return type to match the
+-- frontend contract. CREATE OR REPLACE cannot change return shapes without dropping first.
+DROP FUNCTION IF EXISTS public.get_reports_sla_v1(INTEGER, TEXT, TEXT, TEXT);
 CREATE OR REPLACE FUNCTION public.get_reports_sla_v1(
   p_days INT DEFAULT 7, p_region TEXT DEFAULT NULL, p_country TEXT DEFAULT NULL, p_city TEXT DEFAULT NULL
 )
@@ -1131,6 +1134,9 @@ AS $$
   SELECT total, with_geo, CASE WHEN total > 0 THEN with_geo * 100.0 / total ELSE 0 END FROM a;
 $$;
 
+-- DROP required because migration 045 corrected the return type/shape to match
+-- the frontend contract. CREATE OR REPLACE cannot change return shapes without dropping first.
+DROP FUNCTION IF EXISTS public.get_reports_spike_explain_v1(INTEGER, TEXT, TEXT, TEXT);
 CREATE OR REPLACE FUNCTION public.get_reports_spike_explain_v1(
   p_days INT DEFAULT 7, p_region TEXT DEFAULT NULL, p_country TEXT DEFAULT NULL, p_city TEXT DEFAULT NULL
 )

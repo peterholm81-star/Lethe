@@ -209,6 +209,8 @@ Hardened so far:
 - `public.get_reports_geo_coverage_v1(...)` in
   `043_harden_get_reports_geo_coverage_v1.sql`
   (no frontend caller; hardened preemptively before dashboard wiring)
+- `public.get_reports_geo_coverage_v2(...)` in
+  `044_harden_get_reports_geo_coverage_v2.sql`
 
 Still ungated:
 - remaining reports aggregates (`get_reports_map_v2`, `get_reports_breakdown_v2`,

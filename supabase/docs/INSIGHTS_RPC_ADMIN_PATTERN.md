@@ -294,9 +294,14 @@ Hardened so far:
   GROUP BY/ORDER BY; no alias renaming needed; admin: 3 rows both overloads;
   non-admin: 0 rows)
 
-Still ungated (LOW risk):
-- filter helpers (`get_insights_region_options`, `get_insights_country_options`,
-  `get_insights_city_options`)
+- `public.get_insights_region_options()`, `public.get_insights_country_options(text)`,
+  `public.get_insights_city_options(text,text)` in
+  `057_harden_insights_filter_options.sql`
+  (batched final LOW-risk helpers; single SELECT DISTINCT bodies, all refs
+  table-qualified with e.; no CTEs, no shadowing risk; admin: 7 regions,
+  23 countries, 25 cities; non-admin: 0 rows)
+
+**All Lethe Insights RPCs are now production-hardened.**
 - trends and seasonality read aggregates (`get_trends_comparison_v1`,
   `get_trends_trendline_v1`, `get_year_wheel_v1`, `get_emotion_fingerprint_v1`,
   `get_trends_movers_v1`)
@@ -316,14 +321,13 @@ All moderation write RPCs and high-risk moderation read RPCs are now hardened.
 All Reports-page RPCs are now hardened. The entire Reports section of
 Lethe Insights is production-safe.
 
-All CRITICAL, HIGH, and MEDIUM RPCs are now hardened. Only LOW-risk filter
-helpers remain: `get_insights_region_options`, `get_insights_country_options`,
-`get_insights_city_options`. These return geo metadata (region/country/city
-lists) for populating filter dropdowns. They expose no moderation data and
-no individual user data, but they do reveal what geo coverage Lethe has —
-harden last.
+**All Lethe Insights RPCs are now production-hardened** (migrations 019–057).
+Every analytics, moderation, monetization, seasonality, and filter RPC is
+gated with is_insights_admin(), has anon revoked, and is granted only to
+authenticated. Local dashboards use runtime-only shims that restore anon
+access without modifying any production migration file.
 
-After that: trends, seasonality, and remaining analytics reads
+Completed categories: trends, seasonality, and remaining analytics reads
 (`get_trends_comparison_v1`, `get_trends_trendline_v1`, `get_year_wheel_v1`,
 `get_emotion_fingerprint_v1`, `get_trends_movers_v1`, `get_sessions_by_country_range`,
 `get_pulse_metrics`, `get_latest_metrics_day`).

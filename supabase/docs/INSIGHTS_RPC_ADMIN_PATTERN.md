@@ -217,9 +217,15 @@ Hardened so far:
   replaced with single aggregate spike-summary row the frontend has always
   expected)
 
+- **CRITICAL internal helpers** (REVOKE only, no body changes):
+  `public._lethe_confession_filtered(...)` and
+  `public._lethe_event_filtered(...)` in
+  `046_revoke_internal_helper_anon_access.sql`
+  — anon and authenticated revoked; postgres superuser callers unaffected
+
 Still ungated:
 - remaining reports aggregates (`get_reports_map_v2`, `get_reports_breakdown_v2`,
-  `get_reports_hotspots_v1`, `get_reports_trend_v1`, etc.)
+  `get_reports_hotspots_v1`, `get_reports_trend_v2`, etc.)
 - trends and seasonality read aggregates (`get_trends_comparison_v1`,
   `get_trends_trendline_v1`, `get_year_wheel_v1`, `get_emotion_fingerprint_v1`,
   `get_trends_movers_v1`)

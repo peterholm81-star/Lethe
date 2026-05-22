@@ -248,12 +248,18 @@ Hardened so far:
   column name conflicts; admin returns 1 row with marker array, non-admin
   returns 0 rows; dev seed lacks lat/lng so marker array is [] locally)
 
+- `public.get_sessions_by_country_range(...)` in
+  `051_harden_get_sessions_by_country_range.sql`
+  (plpgsql rewrite; 6-parameter signature, 2-column multi-row table preserved;
+  calls _lethe_event_filtered internally — safe because SECURITY DEFINER runs
+  as postgres owner; ORDER BY 2 DESC avoids output-variable ambiguity;
+  admin returns 23 country rows, non-admin returns 0 rows)
+
 Still ungated:
 - trends and seasonality RPCs (`get_trends_comparison_v1`,
   `get_trends_trendline_v1`, `get_year_wheel_v1`, `get_emotion_fingerprint_v1`,
   `get_trends_movers_v1`)
-- remaining analytics reads (`get_sessions_by_country_range`,
-  `get_pulse_metrics`, `get_latest_metrics_day`)
+- remaining analytics reads (`get_pulse_metrics`, `get_latest_metrics_day`)
 - filter helpers (`get_insights_region_options`, `get_insights_country_options`,
   `get_insights_city_options`)
 - trends and seasonality read aggregates (`get_trends_comparison_v1`,
@@ -275,13 +281,10 @@ All moderation write RPCs and high-risk moderation read RPCs are now hardened.
 All Reports-page RPCs are now hardened. The entire Reports section of
 Lethe Insights is production-safe.
 
-Recommended next category: trends and seasonality read RPCs —
-`get_trends_comparison_v1`, `get_trends_trendline_v1`, `get_year_wheel_v1`,
-`get_emotion_fingerprint_v1`, `get_trends_movers_v1`. These expose
-temporal analytics trends that should be admin-only.
-
-After that: remaining analytics reads (`get_sessions_by_country_range`,
-`get_pulse_metrics`, `get_latest_metrics_day`), then filter helpers
+Recommended next category: remaining analytics reads (`get_pulse_metrics`,
+`get_latest_metrics_day`), then trends and seasonality read RPCs
+(`get_trends_comparison_v1`, `get_trends_trendline_v1`, `get_year_wheel_v1`,
+`get_emotion_fingerprint_v1`, `get_trends_movers_v1`), then filter helpers
 (`get_insights_region_options`, `get_insights_country_options`,
 `get_insights_city_options`) which are lowest risk.
 

@@ -211,11 +211,15 @@ Hardened so far:
   (no frontend caller; hardened preemptively before dashboard wiring)
 - `public.get_reports_geo_coverage_v2(...)` in
   `044_harden_get_reports_geo_coverage_v2.sql`
+- `public.get_reports_spike_explain_v1(...)` in
+  `045_harden_get_reports_spike_explain_v1.sql`
+  (also fixed pre-existing shape mismatch: old multi-row per-reason breakdown
+  replaced with single aggregate spike-summary row the frontend has always
+  expected)
 
 Still ungated:
 - remaining reports aggregates (`get_reports_map_v2`, `get_reports_breakdown_v2`,
-  `get_reports_hotspots_v1`, `get_reports_spike_explain_v1`,
-  `get_reports_trend_v1`, etc.)
+  `get_reports_hotspots_v1`, `get_reports_trend_v1`, etc.)
 - trends and seasonality read aggregates (`get_trends_comparison_v1`,
   `get_trends_trendline_v1`, `get_year_wheel_v1`, `get_emotion_fingerprint_v1`,
   `get_trends_movers_v1`)
@@ -233,9 +237,9 @@ no dev-seed hardcodings in production bodies.
 All moderation write RPCs and high-risk moderation read RPCs are now hardened.
 
 Recommended next category: remaining reports aggregate read RPCs —
-`get_reports_breakdown_v2`, `get_reports_hotspots_v1`, `get_reports_spike_explain_v1`,
-`get_reports_trend_v1`, `get_reports_map_v2`. These do not expose raw confession
-text but do expose moderation workload stats that should be admin-only.
+`get_reports_breakdown_v2`, `get_reports_hotspots_v1`, `get_reports_trend_v1`,
+`get_reports_map_v2`. These do not expose raw confession text but do expose
+moderation workload stats that should be admin-only.
 
 After that: trends, seasonality, and remaining analytics reads
 (`get_trends_comparison_v1`, `get_trends_trendline_v1`, `get_year_wheel_v1`,

@@ -263,9 +263,16 @@ Hardened so far:
   reads event_logs directly, e.day_bucket alias avoids output-variable shadowing;
   both return 0 rows for non-admin; admin: get_pulse_metrics=3/3/0, latest=2026-05-22)
 
+- `public.get_trends_comparison_v1(...)` and `public.get_trends_trendline_v1(...)` in
+  `053_harden_trends_comparison_and_trendline_v1.sql`
+  (batched — both used by useTrendsV1.ts + useTrendsSummaryV1.ts; comparison:
+  internal aliases sk/mk/val/cur_val/prev_val rename scope_key/metric_key/value
+  to avoid plpgsql output-var shadowing; scopes CTE renamed evt_scopes;
+  trendline: date_series replaces "days" CTE, mk/val replace metric_key/value;
+  admin: 4 comparison rows, 120 trendline rows; non-admin: 0 rows)
+
 Still ungated:
-- trends and seasonality RPCs (`get_trends_comparison_v1`,
-  `get_trends_trendline_v1`, `get_year_wheel_v1`, `get_emotion_fingerprint_v1`,
+- seasonality RPCs (`get_year_wheel_v1`, `get_emotion_fingerprint_v1`,
   `get_trends_movers_v1`)
 - filter helpers (`get_insights_region_options`, `get_insights_country_options`,
   `get_insights_city_options`)
@@ -288,8 +295,7 @@ All moderation write RPCs and high-risk moderation read RPCs are now hardened.
 All Reports-page RPCs are now hardened. The entire Reports section of
 Lethe Insights is production-safe.
 
-Recommended next category: trends and seasonality read RPCs
-(`get_trends_comparison_v1`, `get_trends_trendline_v1`, `get_year_wheel_v1`,
+Recommended next category: remaining seasonality RPCs (`get_year_wheel_v1`,
 `get_emotion_fingerprint_v1`, `get_trends_movers_v1`), then filter helpers
 (`get_insights_region_options`, `get_insights_country_options`,
 `get_insights_city_options`) which are lowest risk.

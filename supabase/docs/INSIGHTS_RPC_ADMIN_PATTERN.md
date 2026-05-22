@@ -196,9 +196,11 @@ Hardened so far:
 
 - `public.get_moderation_actions_v1(...)` in
   `038_harden_get_moderation_actions_v1.sql`
+- `public.get_reports_overview(...)` in
+  `039_harden_get_reports_overview.sql`
 
 Still ungated:
-- reports overview and aggregates (`get_reports_overview`, `get_reports_overview_v2`,
+- reports overview v2 and remaining aggregates (`get_reports_overview_v2`,
   `get_reports_map_v2`, etc.)
 - trends and seasonality read aggregates (`get_trends_comparison_v1`,
   `get_trends_trendline_v1`, `get_year_wheel_v1`, `get_emotion_fingerprint_v1`,
@@ -216,11 +218,11 @@ no dev-seed hardcodings in production bodies.
 
 All moderation write RPCs and high-risk moderation read RPCs are now hardened.
 
-Recommended next category: reports overview and aggregate read RPCs —
-`get_reports_overview`, `get_reports_overview_v2`, and remaining reports
-aggregates (outcomes, SLA, geo coverage, hotspots, spike explain, breakdown,
-trend, map). These do not expose raw confession text but do expose moderation
-workload stats that should be admin-only.
+Recommended next category: remaining reports aggregate read RPCs —
+`get_reports_overview_v2` and remaining reports aggregates (outcomes, SLA,
+geo coverage, hotspots, spike explain, breakdown, trend, map). These do not
+expose raw confession text but do expose moderation workload stats that should
+be admin-only.
 
 After that: trends, seasonality, and remaining analytics reads
 (`get_trends_comparison_v1`, `get_trends_trendline_v1`, `get_year_wheel_v1`,

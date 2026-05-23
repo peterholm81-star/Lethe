@@ -54,6 +54,8 @@ main {
   font-weight: 400;
   color: rgba(168, 156, 247, 0.5);
   letter-spacing: 0.06em;
+  text-decoration: none;
+  cursor: pointer;
 }
 
 .topbar-share {

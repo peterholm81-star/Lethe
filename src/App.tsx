@@ -932,7 +932,12 @@ function App() {
     <main>
       {/* Sticky topbar */}
       <header className="topbar">
-        <span className="topbar-brand">Lethe</span>
+        <a
+          href="https://getlethe.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="topbar-brand"
+        >Lethe</a>
         <button
           className="topbar-share"
           onClick={handleShare}

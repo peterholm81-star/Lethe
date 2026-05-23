@@ -1,0 +1,49 @@
+-- =============================================================================
+-- Migration 063: Drop direct anon INSERT policy on confessions
+-- =============================================================================
+-- Security fix: identified in pre-deploy Launch Safety Audit (2026-05-23).
+--
+-- Background
+-- ----------
+-- Migration 001_confessions.sql created two RLS policies:
+--
+--   CREATE POLICY "Anyone can read confessions"
+--     ON confessions FOR SELECT TO anon USING (true);
+--
+--   CREATE POLICY "Anyone can insert confessions"
+--     ON confessions FOR INSERT TO anon WITH CHECK (true);
+--
+-- Migration 016_drop_confessions_select_policy.sql already dropped the SELECT
+-- policy, blocking direct table reads via PostgREST (/rest/v1/confessions).
+--
+-- The INSERT policy was never dropped. This meant any client holding only the
+-- public anon key could bypass insert_confession entirely by POSTing directly
+-- to /rest/v1/confessions:
+--
+--   POST /rest/v1/confessions
+--   Authorization: Bearer <anon-key>
+--   {"text": "anything up to 120 chars"}
+--
+-- This bypassed:
+--   • Content filter  (@, URLs, TLDs, phone numbers, name patterns)
+--   • Rate limiting   (15-second gap, 3-per-5-minute burst)
+--   • Geo enrichment  (city_code, region, country_code never populated)
+--   • expires_at      (relies on column DEFAULT — still set correctly)
+--   • is_hidden       (relies on column DEFAULT = false — still set correctly)
+--
+-- Fix
+-- ---
+-- Drop the INSERT policy. All confession creation must now go through the
+-- insert_confession RPC (SECURITY DEFINER), which enforces every control above.
+--
+-- What is NOT affected
+-- --------------------
+-- • insert_confession RPC: SECURITY DEFINER — runs as the function owner
+--   (postgres superuser), which bypasses RLS entirely. The RPC continues to
+--   work exactly as before; it does not rely on this policy.
+-- • GRANT EXECUTE on insert_confession TO anon, authenticated: unchanged.
+-- • All other RLS policies on confessions: unchanged.
+-- • Any admin/service-role access: unchanged (service-role bypasses RLS).
+-- =============================================================================
+
+DROP POLICY IF EXISTS "Anyone can insert confessions" ON public.confessions;

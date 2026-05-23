@@ -1,6 +1,6 @@
 /**
  * Onboarding - 4-screen intro flow for new users
- * 
+ *
  * Shows once on first launch, persists completion to localStorage.
  * Matches the dark, quiet visual style of the app.
  */
@@ -11,22 +11,29 @@ interface OnboardingProps {
   onComplete: () => void
 }
 
-const SCREENS = [
+interface Screen {
+  title: string
+  body: string
+  footer?: string
+}
+
+const SCREENS: Screen[] = [
   {
-    title: "If no one ever knew, I would…",
-    body: "A place for the thoughts you never say out loud.",
+    title: "Why Lethe?",
+    body: "In Greek mythology, Lethe was the river of forgetting.\n\nSouls who drank from it lost the memory of their earthly lives.\n\nWe named this app after that river.\nA place where what you say does not follow you.",
+    footer: "λήθη — oblivion, concealment, forgetting.",
   },
   {
     title: "Nothing lasts",
-    body: "Confessions stay for 24 hours. Then they're gone.",
+    body: "Every confession disappears after approximately 24 hours.\n\nNo history.\nNo archive.\nNo permanent record.\n\nOnly what people were willing to say tonight.",
   },
   {
-    title: "Listen anywhere",
-    body: "Read from anywhere in the world.",
+    title: "No profiles. No identity.",
+    body: "There are no usernames.\nNo followers.\nNo public identity.\n\nJust the quiet truth of what people would say\nif nobody remembered it tomorrow.",
   },
   {
-    title: "Confess where you stand",
-    body: "Near Me posts come from where you are. No profiles. No history.",
+    title: "Write where you stand",
+    body: "You can read from anywhere in the world.\n\nBut Near Me confessions come from where people actually are.\n\nLocation is used only to place a confession in the world.\nNothing more.",
   },
 ]
 
@@ -58,6 +65,10 @@ export function Onboarding({ onComplete }: OnboardingProps) {
         <h2 className="onboarding-title">{screen.title}</h2>
         <p className="onboarding-body">{screen.body}</p>
 
+        {screen.footer && (
+          <p className="onboarding-footer">{screen.footer}</p>
+        )}
+
         <div className="onboarding-dots">
           {SCREENS.map((_, index) => (
             <span
@@ -68,7 +79,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
         </div>
 
         <button className="onboarding-cta" onClick={handleContinue}>
-          {isLastScreen ? 'Enter' : 'Continue'}
+          {isLastScreen ? 'Enter Lethe' : 'Continue'}
         </button>
       </div>
     </div>

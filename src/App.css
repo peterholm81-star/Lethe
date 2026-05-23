@@ -825,7 +825,7 @@ li .time {
 
 .onboarding-content {
   text-align: center;
-  max-width: 320px;
+  max-width: 340px;
 }
 
 .onboarding-title {
@@ -833,15 +833,25 @@ li .time {
   font-weight: 400;
   line-height: 1.4;
   letter-spacing: 0.01em;
-  color: rgba(255, 255, 255, 0.88);
-  margin: 0 0 18px;
+  color: var(--heading);
+  margin: 0 0 22px;
 }
 
 .onboarding-body {
   font-size: 0.9375rem;
-  line-height: 1.68;
-  color: rgba(255, 255, 255, 0.42);
-  margin: 0 0 48px;
+  line-height: 1.75;
+  color: var(--text);
+  margin: 0 0 24px;
+  white-space: pre-line;
+}
+
+.onboarding-footer {
+  font-size: 0.75rem;
+  font-style: italic;
+  line-height: 1.5;
+  letter-spacing: 0.06em;
+  color: rgba(147, 147, 168, 0.5);
+  margin: 0 0 32px;
 }
 
 .onboarding-dots {

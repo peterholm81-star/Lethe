@@ -303,30 +303,31 @@ form button[type="submit"]:active {
 }
 
 .confession-card {
-  background: var(--accent-glow);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 24px 24px 20px;
+  background: rgba(168, 156, 247, 0.09);
+  border: 1px solid rgba(168, 156, 247, 0.20);
+  border-radius: 12px;
+  padding: 24px 26px 20px;
   max-width: 560px;
   width: 100%;
+  box-shadow: 0 2px 20px rgba(0, 0, 0, 0.28);
 }
 
 .confession-text {
   display: block;
   font-size: 1.05rem;
-  line-height: 1.72;
+  line-height: 1.78;
   letter-spacing: 0.01em;
   overflow-wrap: anywhere;
   word-break: break-word;
-  margin-bottom: 16px;
-  color: rgba(232, 232, 240, 0.82);
+  margin-bottom: 18px;
+  color: rgba(232, 232, 240, 0.84);
 }
 
 .confession-time {
   display: block;
-  font-size: 0.675rem;
-  color: rgba(255, 255, 255, 0.18);
-  letter-spacing: 0.04em;
+  font-size: 0.65rem;
+  color: rgba(255, 255, 255, 0.14);
+  letter-spacing: 0.07em;
 }
 
 /* Optional glow effect (toggle via ENABLE_CARD_GLOW) */

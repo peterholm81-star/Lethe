@@ -71,7 +71,7 @@ function ShareIcon() {
 const MAX_LENGTH = 120
 
 // Share content (easy to edit)
-const SHARE_TITLE = 'Confess'
+const SHARE_TITLE = 'Lethe'
 const SHARE_TEXT = `If no one ever knew, what would you…?
 
 A quiet place for the things people never admit.
@@ -839,6 +839,7 @@ function App() {
       geoContextRef.current = result.geo
     }
     logEvent('post_success', { mode: tab, ...result.geo })
+    showToast('Your confession is live for 24 hours.')
 
     setText('')
     setSubmitting(false)
@@ -935,7 +936,7 @@ function App() {
         <button
           className="topbar-share"
           onClick={handleShare}
-          aria-label="Share Confess"
+          aria-label="Share Lethe"
           title="Share"
         >
           <ShareIcon />
@@ -1051,6 +1052,11 @@ function App() {
         <div className="empty-feed">
           <p className="empty-feed-primary">Choose a place. Listen in.</p>
         </div>
+      )}
+
+      {/* Feed loading indicator — only during initial load (no existing items yet) */}
+      {currentFeed.loading && currentFeed.confessions.length === 0 && (
+        <div className="feed-loading" aria-label="Loading">···</div>
       )}
 
       {/* Empty feed state — only show after a successful fetch that returned zero results.

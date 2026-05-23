@@ -227,6 +227,21 @@ button:disabled {
   margin-bottom: 16px;
 }
 
+/* Feed loading indicator */
+.feed-loading {
+  text-align: center;
+  padding: 56px 16px 32px;
+  color: rgba(255, 255, 255, 0.22);
+  font-size: 1rem;
+  letter-spacing: 0.15em;
+  animation: feed-loading-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes feed-loading-pulse {
+  0%, 100% { opacity: 0.3; }
+  50%       { opacity: 1;   }
+}
+
 /* Empty feed state */
 .empty-feed {
   text-align: center;

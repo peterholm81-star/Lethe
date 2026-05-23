@@ -26,7 +26,7 @@ const SCREENS = [
   },
   {
     title: "Confess where you stand",
-    body: "You can only post from where you are. No profiles. No history.",
+    body: "Near Me posts come from where you are. No profiles. No history.",
   },
 ]
 
